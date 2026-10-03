@@ -1,4 +1,4 @@
-# V3 API Contract
+# V4 API Contract
 
 ## Authentication
 
@@ -18,7 +18,7 @@ Returns the caller's organization and registered agents.
 `POST /api/tasks`
 Headers: `Idempotency-Key: <unique-client-key>`
 Body: `{ "goal": string, "organizationId?": string, "maxCostCents?": number }`
-The route builds a V3 plan through the planner, validates it, then persists the task and plan revision before execution.
+The route builds a V4 plan through the planner, validates it, then persists the task and plan revision before execution.
 
 `GET /api/tasks/<taskId>`
 Returns the task, current and historical plan steps, event trail, artifacts and approvals for the caller's organization.
@@ -48,7 +48,7 @@ queued/running -> cancelled
 
 Recovery replanning creates a new plan revision while preserving the historical steps of prior revisions. A retry keeps a step in `queued` and uses `run_after` for bounded exponential backoff; the worker also copies the earliest retry wake-up onto the task's `run_after` field.
 
-## V3 invariants
+## V4 invariants
 
 1. A plan must be an acyclic DAG with 2–16 steps.
 2. Every referenced agent must be available and non-offline.
@@ -59,3 +59,29 @@ Recovery replanning creates a new plan revision while preserving the historical 
 7. High/critical-risk tools require approval; the exact approval ID must be resolved.
 8. Duplicate `(organization_id, idempotency_key)` returns the existing task.
 9. Tenant authorization remains explicit at the application boundary and RLS-protected in Supabase.
+
+## Connector endpoints
+
+`GET /api/connectors?organizationId=<uuid>` returns connector metadata and agent bindings. Secret material is excluded.
+
+`POST /api/connectors` creates a connector. Owner/admin only. `baseUrl`, when provided, must use HTTPS.
+
+`PATCH /api/connectors/<connectorId>` changes connector status. Owner/admin only.
+
+`GET /api/connectors/<connectorId>/credentials` returns non-secret credential metadata.
+
+`POST /api/connectors/<connectorId>/credentials` stores an encrypted credential. Owner/admin only. The plaintext secret is never returned.
+
+`GET /api/connectors/<connectorId>/bindings` returns agent bindings for that connector.
+
+`POST /api/connectors/<connectorId>/bindings` binds an agent with explicit tool allowlists, scopes and optional credential. Owner/admin only.
+
+`POST /api/connectors/<connectorId>/health` with `{"action":"reset_circuit"}` resets a connector circuit. Owner/admin only.
+
+## V4 invariants
+
+10. Connector routes never cross organization boundaries.
+11. Credential plaintext and agent private keys are server-only and encrypted at rest.
+12. A connector credential must match the connector auth scheme and be active, unexpired and scoped for the requested tool.
+13. Prepared connector requests expire and use unique nonces; provenance stores hashes rather than raw payload copies.
+14. Circuit health updates are atomic; fallback traversal is bounded and cycle-safe.
