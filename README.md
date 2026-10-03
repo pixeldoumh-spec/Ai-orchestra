@@ -24,6 +24,7 @@ A provider-neutral AI control plane for discovering, delegating, planning, execu
 - Append-only task-event enforcement at the database layer
 - Network discovery of public and explicitly shared agents
 - Provider-controlled cross-organization agent shares
+- Direct-share delegation even when an agent is not marketplace-listed
 - Capability negotiation with contract hashing
 - Durable agent-to-agent delegation records with idempotency and leases
 - Provider acceptance workflow before first cross-organization execution
@@ -35,7 +36,7 @@ A provider-neutral AI control plane for discovering, delegating, planning, execu
 ```text
 User intent
   -> authenticated API
-  -> V4 planner
+  -> V5 planner
   -> validated DAG
   -> durable task + plan revision
   -> leased worker
@@ -48,11 +49,27 @@ User intent
 
 Failure after retries -> bounded replan -> new plan revision
 High/critical tool      -> approval gate -> resume/reject
+
+Optional network delegation
+  -> discover public/shared agent
+  -> provider share / acceptance
+  -> capability negotiation
+  -> bounded contract + budget + trust snapshot
+  -> isolated model-only execution
+  -> hashed result provenance + reputation event
 ```
+
+## Network trust boundary
+
+Public listings contain metadata only. An unlisted agent is not discoverable through the public marketplace. Cross-organization delegation requires either a provider-controlled active share or a published public listing that is paired with an active provider share before execution. Direct-share delegation is supported without marketplace listing.
+
+Remote execution is deliberately isolated: the provider model receives the negotiated objective and contract, but source-organization credentials, connectors, tools and hidden context do not cross the organization boundary. The V5 executor never performs arbitrary external side effects on behalf of the remote agent.
+
+Trust scores are reliability signals, not identity proof. A consumer can impose a minimum trust threshold, while the provider controls the share's capabilities, budget, expiry and acceptance mode. Reputation updates are server-side and append a durable event for completed or failed delegations.
 
 ## Planner behavior
 
-When `AI_MODEL_PROVIDER=mock`, V4 uses a deterministic fallback that intentionally contains two independent research branches so the execution engine can be validated without a model credential. When `AI_MODEL_PROVIDER=openai`, the server-side Responses adapter supplies the planning request; the returned plan must pass schema, agent-availability, dependency, cycle and verification-coverage checks before it can be stored.
+When `AI_MODEL_PROVIDER=mock`, the server uses a deterministic fallback that intentionally contains independent research branches so the execution engine can be validated without a model credential. When `AI_MODEL_PROVIDER=openai`, the server-side adapter supplies the planning request; the returned plan must pass schema, agent-availability, dependency, cycle and verification-coverage checks before it can be stored.
 
 A planner is never trusted merely because it returned JSON. The plan validator is the authority for graph shape and safety constraints.
 
@@ -60,7 +77,7 @@ A planner is never trusted merely because it returned JSON. The plan validator i
 
 The worker calculates the ready frontier from persisted step state and executes the selected frontier concurrently with `Promise.all`. It limits the batch by configured agent budgets and the task's remaining cost ceiling. Step spend is accumulated across attempts, then reconciled to the task after every batch.
 
-Retries use bounded exponential backoff. The next wake-up time is copied onto the task queue row so an internal scheduler can pick the task up again. When a step exhausts its retries, V3 can request a replacement DAG up to `TASK_MAX_REPLANS` times while preserving the prior plan revision for auditability.
+Retries use bounded exponential backoff. The next wake-up time is copied onto the task queue row so an internal scheduler can pick the task up again. When a step exhausts its retries, V5 can request a replacement DAG up to `TASK_MAX_REPLANS` times while preserving the prior plan revision for auditability.
 
 ## Verification
 
@@ -70,17 +87,17 @@ Verification is not a non-empty-string check. Verification agents are required t
 
 Browser clients use the Supabase publishable key. Server routes and workers use the server-only Supabase secret key. Tenant tables remain RLS-protected and browser access is read-only. Tool use requires an agent-declared tool plus an explicit permission. High/critical-risk tools stop for human approval. Provider credentials never enter the browser bundle.
 
-`external.action` remains a high-risk, approval-gated preparation path. V4 resolves a scoped connector, signs an expiring request and records provenance, but does not silently perform arbitrary external side effects.
+`external.action` remains a high-risk, approval-gated preparation path. V5 adds network delegation without weakening that boundary: remote agents are model-only and cannot inherit connectors, credentials or tools from another organization.
 
 ## Run locally
 
 1. Create a dedicated Supabase project for this application.
-2. Apply `supabase/migrations/20261003_agent_orchestrator_v2.sql`, then `supabase/migrations/20261003_agent_orchestrator_v3.sql`, then `supabase/migrations/20261003_agent_orchestrator_v4.sql`.
+2. Apply `supabase/migrations/20261003_agent_orchestrator_v2.sql`, then `20261003_agent_orchestrator_v3.sql`, then `20261003_agent_orchestrator_v4.sql`, then `20261003_agent_orchestrator_v5.sql`.
 3. Copy `.env.example` to `.env.local` and fill the server/browser Supabase variables plus worker secret.
 4. Use Node.js 22+.
 5. Run `npm install`.
 6. Validate with `npm run typecheck`, `npm run test:core` and `npm run build`.
-7. Start with `AI_MODEL_PROVIDER=mock`; configure the OpenAI adapter only when a provider credential is intentionally added.
+7. Start with `AI_MODEL_PROVIDER=mock`; configure an external model adapter only when a provider credential is intentionally added.
 
 ## Worker deployment
 
