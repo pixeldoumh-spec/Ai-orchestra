@@ -1,8 +1,8 @@
-# Agent Orchestrator V4
+# Agent Orchestrator V5
 
-A provider-neutral AI control plane for planning, executing, verifying, protecting and recovering multi-agent workflows.
+A provider-neutral AI control plane for discovering, delegating, planning, executing, verifying, protecting and recovering multi-agent workflows.
 
-## What V4 adds
+## What V5 adds
 
 - LLM-driven workflow planner with strict Zod validation
 - DAG cycle/dependency validation before persistence
@@ -22,6 +22,13 @@ A provider-neutral AI control plane for planning, executing, verifying, protecti
 - Connector health history, atomic circuit breaking and bounded fallbacks
 - Tool/request provenance stored as hashes instead of raw sensitive payloads
 - Append-only task-event enforcement at the database layer
+- Network discovery of public and explicitly shared agents
+- Provider-controlled cross-organization agent shares
+- Capability negotiation with contract hashing
+- Durable agent-to-agent delegation records with idempotency and leases
+- Provider acceptance workflow before first cross-organization execution
+- Bounded reliability/trust reputation signals
+- Isolated model-only remote execution; remote credentials and tools never cross organizations
 
 ## Runtime model
 
