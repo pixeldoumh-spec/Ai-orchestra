@@ -1,0 +1,6 @@
+export type CircuitState="closed"|"open"|"half_open";
+export interface CircuitSnapshot{state:CircuitState;consecutiveFailures:number;cooldownUntil?:string|null;}
+export function effectiveCircuitState(s:CircuitSnapshot,now=Date.now()):CircuitState{if(s.state==="open"&&s.cooldownUntil){const t=Date.parse(s.cooldownUntil);if(Number.isFinite(t)&&t<=now)return"half_open";}return s.state;}
+export function canRouteToConnector(s:CircuitSnapshot,now=Date.now()){return effectiveCircuitState(s,now)!=="open";}
+export function selectConnectorCandidate(ids:string[],snaps:Map<string,CircuitSnapshot>,now=Date.now()):string|null{for(const id of ids){const s=snaps.get(id);if(s&&canRouteToConnector(s,now))return id;}return null;}
+export function nextCircuitState(i:{current:CircuitState;consecutiveFailures:number;success:boolean;failureThreshold:number;cooldownSeconds:number;now?:number}){const now=i.now??Date.now();if(i.success)return{state:"closed"as const,consecutiveFailures:0,cooldownUntil:null as string|null};const failures=i.consecutiveFailures+1;if(failures>=Math.max(1,i.failureThreshold))return{state:"open"as const,consecutiveFailures:failures,cooldownUntil:new Date(now+Math.max(1,i.cooldownSeconds)*1000).toISOString()};return{state:"closed"as const,consecutiveFailures:failures,cooldownUntil:null as string|null};}

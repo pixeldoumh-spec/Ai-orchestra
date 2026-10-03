@@ -35,3 +35,13 @@ Step backoff is persisted on `run_after`. The worker also sets the task-level `r
 ## 9. Current boundary
 
 V3 intentionally does not claim arbitrary autonomous control of external systems. `external.action` remains a high-risk placeholder until the later connector/security layer adds identity, secret scoping, provenance, circuit breakers and rollback semantics.
+
+## V4 infrastructure layer
+
+Agent identity, credentials and connector execution now sit behind explicit server-side boundaries:
+
+`agent → encrypted Ed25519 identity → scoped agent/connector binding → credential scope → circuit breaker/fallback → signed expiring request → approval → connector adapter`.
+
+Credential plaintext is never stored. AES-256-GCM ciphertext carries an explicit key version, while browser roles cannot read credential or private-key rows. Tool allowlists and credential scopes are checked before a connector route is accepted.
+
+Connector requests receive a unique request id, nonce, expiry, payload hash and agent signature. Provenance stores hashes rather than duplicating raw tool payloads. Connector outcome recording uses a row-locked Postgres function so failure counters and health events change atomically.

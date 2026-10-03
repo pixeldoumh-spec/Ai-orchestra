@@ -42,7 +42,7 @@ export async function createTask(input: {
     idempotency_key: input.idempotencyKey,
     max_cost_cents: input.maxCostCents,
     spent_cost_cents: 0,
-    plan_version: "v3.1",
+    plan_version: "v4.0.0",
     plan_revision: 1,
     replan_count: 0,
     planner_model: input.plannerModel ?? null,
@@ -63,8 +63,8 @@ export async function createTask(input: {
     await db.from("tasks").delete().eq("id", taskId);
     throw new Error(stepError.message);
   }
-  await appendEvent(taskId, input.organizationId, "task.queued", { goal: input.goal, planVersion: "v3.1", stepCount: input.plan.steps.length });
-  await appendEvent(taskId, input.organizationId, "plan.created", { planVersion: "v3.1", revision: 1, rationale: input.plan.rationale ?? null });
+  await appendEvent(taskId, input.organizationId, "task.queued", { goal: input.goal, planVersion: "v4.0.0", stepCount: input.plan.steps.length });
+  await appendEvent(taskId, input.organizationId, "plan.created", { planVersion: "v4.0.0", revision: 1, rationale: input.plan.rationale ?? null });
   return data;
 }
 
@@ -77,8 +77,9 @@ export async function getTask(taskId: string, organizationId: string) {
   const { data: events, error: eventError } = await db.from("task_events").select("*").eq("task_id", taskId).order("created_at", { ascending: true }).limit(400);
   if (eventError) throw new Error(eventError.message);
   const { data: artifacts } = await db.from("task_artifacts").select("id, name, content, created_at").eq("task_id", taskId).order("created_at", { ascending: true });
-  const { data: approvals } = await db.from("approvals").select("id, step_id, status, action_type, reason, resolved_by, resolved_at, created_at, expires_at").eq("task_id", taskId).order("created_at", { ascending: true });
-  return { ...task, steps: steps ?? [], events: events ?? [], artifacts: artifacts ?? [], approvals: approvals ?? [] };
+  const { data: approvals } = await db.from("approvals").select("id, step_id, status, action_type, reason, resolved_by, resolved_at, created_at, expires_at, connector_request_id").eq("task_id", taskId).order("created_at", { ascending: true });
+  const { data: toolInvocations } = await db.from("tool_invocations").select("id, step_id, agent_id, tool_id, status, connector_request_id, policy_decision, created_at, completed_at").eq("task_id", taskId).order("created_at", { ascending: true }).limit(200);
+  return { ...task, steps: steps ?? [], events: events ?? [], artifacts: artifacts ?? [], approvals: approvals ?? [], toolInvocations: toolInvocations ?? [] };
 }
 
 export async function appendEvent(taskId: string, organizationId: string, eventType: string, payload: unknown, actorId?: string) {
@@ -155,7 +156,7 @@ export async function replanTask(input: { taskId: string; organizationId: string
   const nextCount = Number(task.replan_count ?? 0) + 1;
   const { error: updateError } = await db.from("tasks").update({
     status: "queued",
-    plan_version: `v3.${revision}`,
+    plan_version: `v4.${revision}`,
     plan_revision: revision,
     replan_count: nextCount,
     planner_model: input.plannerModel ?? null,

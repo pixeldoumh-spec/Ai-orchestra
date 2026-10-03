@@ -1,6 +1,6 @@
 {
-  "name": "agent-orchestrator-v3",
-  "version": "0.3.0",
+  "name": "agent-orchestrator-v4",
+  "version": "0.4.0",
   "private": true,
   "engines": {
     "node": ">=22.0.0"

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildAdaptiveFallbackPlan, readyStepIds, selectParallelBatch, validatePlan } from '../.tmp-core/workflow.js';
 import { canUsePermission, requiresApproval } from '../.tmp-core/policy.js';
+import { effectiveCircuitState, nextCircuitState, selectConnectorCandidate } from '../.tmp-core/connector.js';
 
 test('V3 fallback plan has explicit parallel branches and verification coverage',()=>{
   const plan=buildAdaptiveFallbackPlan('make report',{research:'research',analysis:'analysis',writer:'writer',verifier:'verifier'});
@@ -39,4 +40,17 @@ test('high and critical risk require explicit approval',()=>{
   assert.equal(requiresApproval('critical'),true);
   assert.equal(canUsePermission({agentPermissions:['x'],requestedPermission:'x',risk:'high',approvalGranted:false}),false);
   assert.equal(canUsePermission({agentPermissions:['x'],requestedPermission:'x',risk:'high',approvalGranted:true}),true);
+});
+
+test('V4 circuit breaker opens after the failure threshold and later enters half-open probe state',()=>{
+  const state=nextCircuitState({current:'closed',consecutiveFailures:2,success:false,failureThreshold:3,cooldownSeconds:30,now:1000});
+  assert.equal(state.state,'open');
+  assert.equal(effectiveCircuitState({state:state.state,consecutiveFailures:state.consecutiveFailures,cooldownUntil:state.cooldownUntil},1500),'open');
+  assert.equal(effectiveCircuitState({state:state.state,consecutiveFailures:state.consecutiveFailures,cooldownUntil:state.cooldownUntil},31000),'half_open');
+});
+
+test('V4 fallback routing skips an open primary but permits a cooled primary probe',()=>{
+  const snaps=new Map([['primary',{state:'open',consecutiveFailures:3,cooldownUntil:new Date(60000).toISOString()}],['fallback',{state:'closed',consecutiveFailures:0,cooldownUntil:null}]]);
+  assert.equal(selectConnectorCandidate(['primary','fallback'],snaps,10000),'fallback');
+  assert.equal(selectConnectorCandidate(['primary','fallback'],new Map([['primary',{state:'open',consecutiveFailures:3,cooldownUntil:new Date(1000).toISOString()}],['fallback',{state:'closed',consecutiveFailures:0,cooldownUntil:null}]]),10000),'primary');
 });

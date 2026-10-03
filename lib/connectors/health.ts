@@ -1,0 +1,1 @@
+import{recordConnectorOutcome,resetConnectorCircuit}from"./repository";export{recordConnectorOutcome,resetConnectorCircuit};export function normalizeHealthError(v:unknown){return v instanceof Error?v.name.slice(0,80):"UnknownError";}export function boundedLatency(startedAt:number){return Math.max(0,Math.min(120000,Date.now()-startedAt));}

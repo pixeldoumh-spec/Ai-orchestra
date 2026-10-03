@@ -46,3 +46,11 @@ Mitigation: tool outputs are treated as untrusted data and cannot modify planner
 ## Remaining V4 boundary
 
 V3 still uses a server-side model adapter and a small builtin tool registry. Signed connectors, per-connector secret scopes, provider circuit breakers, richer organization policy and external action rollback are intentionally deferred.
+
+## V4 additions
+
+- **Credential theft:** encrypted secrets/private keys at rest; no browser read grant.
+- **Confused deputy:** connector binding, tool allowlist and credential scope must all match the requesting agent.
+- **Replay:** unique request id + connector nonce + expiry.
+- **Outage storms:** atomic failure counters open the circuit and bounded fallback traversal avoids repeated primary use.
+- **Audit leakage:** provenance records hashes/status instead of copying raw sensitive payloads.

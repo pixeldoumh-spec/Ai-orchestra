@@ -36,6 +36,9 @@ export interface ToolResult {
   output: unknown;
   approved?: boolean;
   approvalReason?: string;
+  requestId?: string;
+  connectorRequestId?: string;
+  connectorId?: string;
 }
 
 export interface AgentContext {

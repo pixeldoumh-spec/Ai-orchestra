@@ -175,10 +175,10 @@ async function runStep(input: {
     const envelope = parseAgentEnvelope(result.output);
     if (envelope.toolRequests.length > MAX_TOOL_REQUESTS_PER_STEP) throw new Error(`Tool request limit exceeded: ${MAX_TOOL_REQUESTS_PER_STEP}`);
     for (const toolRequest of envelope.toolRequests) {
-      const tool = await invokeTool(agent, taskId, { toolId: toolRequest.toolId, input: toolRequest.input });
+      const tool = await invokeTool(agent, taskId, { toolId: toolRequest.toolId, input: toolRequest.input }, step.id);
       if (tool.approved === false) {
         await updateStep(step.id, { status: "awaiting_approval", result: envelope.result, usage_cents: result.usageCents, finished_at: null });
-        await createApproval(taskId, organizationId, step.id, agent.id, tool.approvalReason ?? "Approval required");
+        await createApproval(taskId, organizationId, step.id, agent.id, tool.approvalReason ?? "Approval required", tool.connectorRequestId ?? null);
         await updateTask(taskId, { status: "awaiting_approval" });
         await appendEvent(taskId, organizationId, "approval.requested", { stepId: step.id, toolId: toolRequest.toolId, reason: tool.approvalReason });
         return { stepId: step.id, status: "awaiting_approval", usageCents: result.usageCents };
@@ -264,10 +264,10 @@ async function recordUsage(stepId: string, usageCents: number) {
   await updateStep(stepId, { usage_cents: usageCents, usage_cents_total: Number(data?.usage_cents_total ?? 0) + usageCents });
 }
 
-async function createApproval(taskId: string, organizationId: string, stepId: string, agentId: string, reason: string) {
+async function createApproval(taskId: string, organizationId: string, stepId: string, agentId: string, reason: string, connectorRequestId?: string | null) {
   const db = createAdminClient();
   const expiresAt = new Date(Date.now() + Number(process.env.APPROVAL_TTL_SECONDS ?? "1800") * 1000).toISOString();
-  const { error } = await db.from("approvals").insert({ task_id: taskId, organization_id: organizationId, step_id: stepId, requested_by_agent_id: agentId, status: "pending", reason, action_type: "tool.use", expires_at: expiresAt });
+  const { error } = await db.from("approvals").insert({ task_id: taskId, organization_id: organizationId, step_id: stepId, requested_by_agent_id: agentId, status: "pending", reason, action_type: "tool.use", connector_request_id: connectorRequestId ?? null, expires_at: expiresAt });
   if (error) throw new Error(error.message);
 }
 
