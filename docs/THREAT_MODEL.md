@@ -1,56 +1,21 @@
-# Threat Model V3
+# Threat model
 
-## Assets
-- Task goals, intermediate outputs and final verified results
-- Organization membership and tenant boundaries
-- Agent permissions and tool allow-lists
-- Model/provider credentials
-- Approval decisions
-- Immutable task events and plan-revision history
+Tenant escape: organization-scoped route resolution, foreign keys and RLS on every V5 table.
 
-## Threats and mitigations
+Privilege escalation: explicit enterprise permission matrix; governance mutations require owner/admin; ownership transfer is not exposed through the general role endpoint.
 
-### Malicious or malformed LLM plan
-Mitigation: bounded Zod schema, agent allow-list, acyclic dependency validator, terminal verification coverage and a 16-step maximum before persistence.
+Budget bypass: database task-admission trigger checks max task cost, monthly task limits, monthly spend plus reservations and allowed region. Task budget is immutable after admission.
 
-### Cross-tenant data access
-Mitigation: organization membership checks at the application boundary, organization-scoped queries and RLS on all exposed orchestration tables.
+Concurrency bypass: transaction-locked trigger checks running task count whenever a task enters running state.
 
-### Secret exfiltration
-Mitigation: provider and Supabase secret credentials are server-only; no arbitrary tool execution; connector credentials are not part of the V3 browser contract.
+Resource exhaustion: database agent/member ceilings, task reservations and monthly limits.
 
-### Duplicate task submission
-Mitigation: organization-scoped idempotency key and durable task row.
+Invitation abuse: cryptographically random one-time token, SHA-256 hash storage, seven-day expiry and signed-in email match.
 
-### Worker race / duplicate execution
-Mitigation: conditional task claim with lease ownership and expiry. A task has one live lease, while its ready frontier may execute in parallel inside that worker.
+Audit tampering: browser select-only access plus database triggers rejecting audit UPDATE/DELETE.
 
-### Cost amplification
-Mitigation: per-agent budgets, task budget ceiling, budget-aware frontier selection and cumulative attempt accounting.
+Sensitive data exposure: enterprise telemetry stores identifiers, hashes, metadata and integer cost rather than raw prompts or connector payloads.
 
-### Retry storm
-Mitigation: bounded exponential backoff, task-level wake-up propagation and `TASK_MAX_STEPS` / `TASK_MAX_REPLANS` caps.
+Regional bypass: execution_region is assigned and validated in the database before task insertion.
 
-### Verification bypass
-Mitigation: finalization requires a passing verification step from the current plan revision; raw model text cannot set the task to verified.
-
-### Approval confusion / wrong approval
-Mitigation: V3 approval resolution requires the exact approval identifier and checks task + organization ownership. Expired pending approvals are rejected.
-
-### Audit tampering
-Mitigation: `task_events` is append-only at the database trigger layer.
-
-### Prompt injection from retrieved/tool data
-Mitigation: tool outputs are treated as untrusted data and cannot modify planner policy. A future connector layer should add provenance and content isolation.
-
-## Remaining V4 boundary
-
-V3 still uses a server-side model adapter and a small builtin tool registry. Signed connectors, per-connector secret scopes, provider circuit breakers, richer organization policy and external action rollback are intentionally deferred.
-
-## V4 additions
-
-- **Credential theft:** encrypted secrets/private keys at rest; no browser read grant.
-- **Confused deputy:** connector binding, tool allowlist and credential scope must all match the requesting agent.
-- **Replay:** unique request id + connector nonce + expiry.
-- **Outage storms:** atomic failure counters open the circuit and bounded fallback traversal avoids repeated primary use.
-- **Audit leakage:** provenance records hashes/status instead of copying raw sensitive payloads.
+Availability: V4 circuit breaking provides connector resilience. V5 stores SLA targets and region policy but does not simulate multi-region failover or claim an external SLA.

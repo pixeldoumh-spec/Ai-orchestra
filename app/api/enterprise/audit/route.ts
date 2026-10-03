@@ -1,0 +1,5 @@
+import{NextResponse}from"next/server";
+import{getOrganizationForUser,requireUser}from"@/lib/auth";
+import{hasEnterprisePermission}from"@/lib/enterprise/rbac";
+import{listAuditLogs}from"@/lib/enterprise/repository";
+export async function GET(request:Request){try{const{db,user}=await requireUser();const org=await getOrganizationForUser(db,user.id,new URL(request.url).searchParams.get("organizationId"));if(!org||!hasEnterprisePermission(org.role,"audit.read"))return NextResponse.json({error:"Audit access denied"},{status:403});const limit=Number(new URL(request.url).searchParams.get("limit")??"100");return NextResponse.json({logs:await listAuditLogs(org.id,Number.isFinite(limit)?limit:100)});}catch(e){const status=e instanceof Response?e.status:500;return NextResponse.json({error:e instanceof Error?e.message:"Unknown error"},{status});}}

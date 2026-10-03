@@ -93,6 +93,7 @@ export interface PersistedTask {
   plan_version: string;
   plan_revision: number;
   replan_count: number;
+  execution_region?: string | null;
   plan_json: WorkflowPlan;
   final_result: unknown;
   error: string | null;
