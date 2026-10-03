@@ -1,8 +1,8 @@
-# Agent Orchestrator V3
+# Agent Orchestrator V4
 
 A provider-neutral AI control plane for planning, executing, verifying and recovering multi-agent workflows.
 
-## What V3 adds
+## What V4 adds
 
 - LLM-driven workflow planner with strict Zod validation
 - DAG cycle/dependency validation before persistence
@@ -15,6 +15,12 @@ A provider-neutral AI control plane for planning, executing, verifying and recov
 - Bounded automatic recovery replanning with plan revisions
 - Plan provenance: planner model, revision and persisted plan JSON
 - Approval identifiers tied to the exact pending approval
+- Per-agent Ed25519 identity with encrypted private-key storage
+- Encrypted, versioned connector credential vault with explicit scope
+- Agent-to-connector bindings with least-privilege tool allowlists
+- Signed, expiring connector requests with nonce replay protection
+- Connector health history, atomic circuit breaking and bounded fallbacks
+- Tool/request provenance stored as hashes instead of raw sensitive payloads
 - Append-only task-event enforcement at the database layer
 
 ## Runtime model
@@ -62,7 +68,7 @@ Browser clients use the Supabase publishable key. Server routes and workers use 
 ## Run locally
 
 1. Create a dedicated Supabase project for this application.
-2. Apply `supabase/migrations/20261003_agent_orchestrator_v2.sql` followed by `supabase/migrations/20261003_agent_orchestrator_v3.sql`.
+2. Apply `supabase/migrations/20261003_agent_orchestrator_v2.sql` followed by `supabase/migrations/20261003_agent_orchestrator_v3.sql` followed by `20261003_agent_orchestrator_v4.sql`.
 3. Copy `.env.example` to `.env.local` and fill the server/browser Supabase variables plus worker secret.
 4. Use Node.js 22+.
 5. Run `npm install`.
