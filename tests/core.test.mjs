@@ -3,6 +3,7 @@ import test from 'node:test';
 import { buildAdaptiveFallbackPlan, readyStepIds, selectParallelBatch, validatePlan } from '../.tmp-core/workflow.js';
 import { canUsePermission, requiresApproval } from '../.tmp-core/policy.js';
 import { effectiveCircuitState, nextCircuitState, selectConnectorCandidate } from '../.tmp-core/connector.js';
+import { computeTrustScore, isCapabilityContractValid, negotiateCapabilities, normalizeCapabilities, supportsCapabilities, trustScoreSatisfies } from '../.tmp-core/network.js';
 
 test('V3 fallback plan has explicit parallel branches and verification coverage',()=>{
   const plan=buildAdaptiveFallbackPlan('make report',{research:'research',analysis:'analysis',writer:'writer',verifier:'verifier'});
@@ -53,4 +54,23 @@ test('V4 fallback routing skips an open primary but permits a cooled primary pro
   const snaps=new Map([['primary',{state:'open',consecutiveFailures:3,cooldownUntil:new Date(60000).toISOString()}],['fallback',{state:'closed',consecutiveFailures:0,cooldownUntil:null}]]);
   assert.equal(selectConnectorCandidate(['primary','fallback'],snaps,10000),'fallback');
   assert.equal(selectConnectorCandidate(['primary','fallback'],new Map([['primary',{state:'open',consecutiveFailures:3,cooldownUntil:new Date(1000).toISOString()}],['fallback',{state:'closed',consecutiveFailures:0,cooldownUntil:null}]]),10000),'primary');
+});
+
+test('V5 capability normalization and negotiation never widen requested access',()=>{
+  assert.deepEqual(normalizeCapabilities([' Research ','research','WRITE','']),['research','write']);
+  assert.deepEqual(negotiateCapabilities(['research','write','summarize'],['research','admin','write'],['research','write']),['research','write']);
+  assert.equal(supportsCapabilities(['research','write'],['research','write']),true);
+  assert.equal(supportsCapabilities(['research'],['research','write']),false);
+});
+
+test('V5 capability contracts only contain requested and provider-supported capabilities',()=>{
+  assert.equal(isCapabilityContractValid(['research','write'],['research'],['research']),true);
+  assert.equal(isCapabilityContractValid(['research'],['research','write'],['research']),false);
+});
+
+test('V5 reputation uses a bounded Bayesian-style prior and threshold checks',()=>{
+  assert.equal(computeTrustScore({total:0,completed:0,failed:0}),50);
+  assert.equal(computeTrustScore({total:10,completed:10,failed:0}),69.23);
+  assert.equal(trustScoreSatisfies(75,75),true);
+  assert.equal(trustScoreSatisfies(74.99,75),false);
 });

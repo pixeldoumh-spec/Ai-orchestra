@@ -1,0 +1,10 @@
+export type ListingVisibility="public"|"unlisted";
+export type ListingStatus="draft"|"published"|"suspended";
+export type DelegationMode="manual"|"auto";
+export type ShareStatus="active"|"revoked";
+export type DelegationStatus="requested"|"accepted"|"running"|"completed"|"rejected"|"failed"|"expired"|"cancelled";
+export interface AgentListing{id:string;organizationId:string;agentId:string;slug:string;title:string;description:string;capabilities:string[];tags:string[];visibility:ListingVisibility;status:ListingStatus;delegationMode:DelegationMode;agentVersion:string;createdAt:string;updatedAt:string;}
+export interface AgentShare{id:string;providerOrganizationId:string;consumerOrganizationId:string;agentId:string;allowedCapabilities:string[];maxCostCents:number;autoAccept:boolean;status:ShareStatus;expiresAt:string|null;createdAt:string;updatedAt:string;}
+export interface NetworkDelegation{id:string;requestId:string;sourceOrganizationId:string;sourceUserId:string;sourceTaskId:string|null;sourceStepId:string|null;sourceAgentId:string;providerOrganizationId:string;providerAgentId:string;listingId:string|null;shareId:string|null;requestedCapabilities:string[];negotiatedCapabilities:string[];objective:string;contract:unknown;contractHash:string;minTrustScore:number;trustScoreSnapshot:number;maxCostCents:number;spentCostCents:number;status:DelegationStatus;result:unknown;resultHash:string|null;error:string|null;attemptCount:number;maxAttempts:number;expiresAt:string;createdAt:string;startedAt:string|null;completedAt:string|null;latencyMs:number|null;}
+export interface AgentReputation{organizationId:string;agentId:string;totalDelegations:number;completedCount:number;failedCount:number;trustScore:number;avgLatencyMs:number;updatedAt:string;}
+export interface NetworkDiscoveryResult{listing:AgentListing;organizationName:string;reputation:AgentReputation|null;access:"public"|"shared";}

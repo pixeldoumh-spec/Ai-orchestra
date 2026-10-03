@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { digestEqual } from "@/lib/core/security";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processTask } from "@/lib/orchestrator/worker";
+import { listAcceptedDelegations } from "@/lib/network/repository";
+import { processNetworkDelegation } from "@/lib/network/executor";
 
 export async function POST(request: Request) {
   const configured = process.env.INTERNAL_WORKER_SECRET;
@@ -14,5 +16,10 @@ export async function POST(request: Request) {
 
   const results = [];
   for (const task of tasks ?? []) results.push(await processTask(task.id, task.organization_id));
-  return NextResponse.json({ processed: results.length, results });
+  const delegationQueue = await listAcceptedDelegations(10);
+  const delegations = [];
+  for (const delegation of delegationQueue) {
+    delegations.push(await processNetworkDelegation(delegation.id, delegation.source_organization_id));
+  }
+  return NextResponse.json({ processed: results.length, tasks: results, networkDelegations: delegations.length, delegations });
 }

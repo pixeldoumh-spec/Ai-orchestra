@@ -1,10 +1,8 @@
 {
-  "name": "agent-orchestrator-v4",
-  "version": "0.4.0",
+  "name": "agent-orchestrator-v5",
+  "version": "0.5.0",
   "private": true,
-  "engines": {
-    "node": ">=22.0.0"
-  },
+  "engines": { "node": ">=22.0.0" },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

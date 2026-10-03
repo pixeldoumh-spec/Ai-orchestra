@@ -1,0 +1,269 @@
+import { createAdminClient } from "@/lib/supabase/admin";
+import { hashJson } from "@/lib/vault/crypto";
+import { negotiateCapabilities, normalizeCapabilities, supportsCapabilities, trustScoreSatisfies, isCapabilityContractValid } from "@/lib/core/network";
+import type { AgentListing, AgentReputation, AgentShare, NetworkDelegation, NetworkDiscoveryResult, DelegationMode } from "./types";
+
+function mapListing(r: any): AgentListing {
+  return { id: r.id, organizationId: r.organization_id, agentId: r.agent_id, slug: r.slug, title: r.title, description: r.description, capabilities: Array.isArray(r.capabilities_snapshot) ? r.capabilities_snapshot : [], tags: Array.isArray(r.tags) ? r.tags : [], visibility: r.visibility, status: r.status, delegationMode: r.delegation_mode, agentVersion: r.agent_version, createdAt: r.created_at, updatedAt: r.updated_at };
+}
+function mapShare(r: any): AgentShare {
+  return { id: r.id, providerOrganizationId: r.provider_organization_id, consumerOrganizationId: r.consumer_organization_id, agentId: r.agent_id, allowedCapabilities: Array.isArray(r.allowed_capabilities) ? r.allowed_capabilities : [], maxCostCents: Number(r.max_cost_cents), autoAccept: Boolean(r.auto_accept), status: r.status, expiresAt: r.expires_at ?? null, createdAt: r.created_at, updatedAt: r.updated_at };
+}
+function mapRep(r: any): AgentReputation {
+  return { organizationId: r.organization_id, agentId: r.agent_id, totalDelegations: Number(r.total_delegations ?? 0), completedCount: Number(r.completed_count ?? 0), failedCount: Number(r.failed_count ?? 0), trustScore: Number(r.trust_score ?? 50), avgLatencyMs: Number(r.avg_latency_ms ?? 0), updatedAt: r.updated_at };
+}
+function mapDelegation(r: any): NetworkDelegation {
+  return { id: r.id, requestId: r.request_id, sourceOrganizationId: r.source_organization_id, sourceUserId: r.source_user_id, sourceTaskId: r.source_task_id ?? null, sourceStepId: r.source_step_id ?? null, sourceAgentId: r.source_agent_id, providerOrganizationId: r.provider_organization_id, providerAgentId: r.provider_agent_id, listingId: r.listing_id ?? null, shareId: r.share_id ?? null, requestedCapabilities: Array.isArray(r.requested_capabilities) ? r.requested_capabilities : [], negotiatedCapabilities: Array.isArray(r.negotiated_capabilities) ? r.negotiated_capabilities : [], objective: r.objective, contract: r.contract, contractHash: r.contract_hash, minTrustScore: Number(r.min_trust_score ?? 0), trustScoreSnapshot: Number(r.trust_score_snapshot ?? 50), maxCostCents: Number(r.max_cost_cents), spentCostCents: Number(r.spent_cost_cents ?? 0), status: r.status, result: r.result, resultHash: r.result_hash ?? null, error: r.error ?? null, attemptCount: Number(r.attempt_count ?? 0), maxAttempts: Number(r.max_attempts ?? 2), expiresAt: r.expires_at, createdAt: r.created_at, startedAt: r.started_at ?? null, completedAt: r.completed_at ?? null, latencyMs: r.latency_ms == null ? null : Number(r.latency_ms) };
+}
+
+export async function listNetworkListings(input: { query?: string; capability?: string; organizationId: string }): Promise<NetworkDiscoveryResult[]> {
+  const db = createAdminClient();
+  const q = (input.query ?? "").trim().toLowerCase();
+  const cap = (input.capability ?? "").trim().toLowerCase();
+  const { data: publicRows, error: publicError } = await db.from("agent_listings").select("*").eq("status", "published").eq("visibility", "public").order("created_at", { ascending: false }).limit(100);
+  if (publicError) throw new Error(publicError.message);
+  const { data: shareRows, error: shareError } = await db.from("agent_shares").select("*").eq("consumer_organization_id", input.organizationId).eq("status", "active").order("created_at", { ascending: false }).limit(100);
+  if (shareError) throw new Error(shareError.message);
+  const pairKeys = new Set((shareRows ?? []).map((x: any) => x.provider_organization_id + ":" + x.agent_id));
+  const agentIds = [...new Set((shareRows ?? []).map((x: any) => x.agent_id))];
+  let sharedRows: any[] = [];
+  if (agentIds.length) {
+    const { data, error: sharedError } = await db.from("agent_listings").select("*").in("agent_id", agentIds).eq("status", "published").limit(100);
+    if (sharedError) throw new Error(sharedError.message);
+    sharedRows = (data ?? []).filter((r: any) => pairKeys.has(r.organization_id + ":" + r.agent_id));
+  }
+  const dedup = new Map<string, { r: any; access: "public" | "shared" }>();
+  for (const r of publicRows ?? []) dedup.set(r.id, { r, access: "public" });
+  for (const r of sharedRows) dedup.set(r.id, { r, access: "shared" });
+  const rows = [...dedup.values()].filter(({ r }) => {
+    const caps = (Array.isArray(r.capabilities_snapshot) ? r.capabilities_snapshot : []).map((x: string) => x.toLowerCase());
+    const tags = (Array.isArray(r.tags) ? r.tags : []).map((x: string) => x.toLowerCase());
+    const searchable = [r.title, r.description, r.slug, ...caps, ...tags].join(" ").toLowerCase();
+    return (!q || searchable.includes(q)) && (!cap || caps.includes(cap));
+  }).slice(0, 50);
+  const orgIds = [...new Set(rows.map((x) => x.r.organization_id))];
+  const orgMap = new Map<string, string>();
+  if (orgIds.length) {
+    const { data, error: orgError } = await db.from("organizations").select("id,name").in("id", orgIds);
+    if (orgError) throw new Error(orgError.message);
+    for (const o of data ?? []) orgMap.set(o.id, o.name);
+  }
+  const repMap = new Map<string, AgentReputation>();
+  if (orgIds.length) {
+    const { data, error: repError } = await db.from("agent_reputation").select("*").in("organization_id", orgIds);
+    if (repError) throw new Error(repError.message);
+    for (const r of data ?? []) repMap.set(r.organization_id + ":" + r.agent_id, mapRep(r));
+  }
+  return rows.map(({ r, access }) => ({ listing: mapListing(r), organizationName: orgMap.get(r.organization_id) ?? "Unknown organization", reputation: repMap.get(r.organization_id + ":" + r.agent_id) ?? null, access }));
+}
+
+export async function createListing(input: { organizationId: string; agentId: string; slug: string; title: string; description: string; tags: string[]; visibility: "public" | "unlisted"; status: "draft" | "published" | "suspended"; delegationMode: DelegationMode }) {
+  const db = createAdminClient();
+  const { data: agent, error: agentError } = await db.from("agents").select("*").eq("organization_id", input.organizationId).eq("id", input.agentId).maybeSingle();
+  if (agentError) throw new Error(agentError.message);
+  if (!agent) throw new Error("Agent not found");
+  if (agent.status === "offline") throw new Error("Offline agents cannot be listed");
+  const { data, error: insertError } = await db.from("agent_listings").insert({ organization_id: input.organizationId, agent_id: input.agentId, slug: input.slug, title: input.title, description: input.description, capabilities_snapshot: normalizeCapabilities(agent.capabilities ?? []), tags: normalizeCapabilities(input.tags), visibility: input.visibility, status: input.status, delegation_mode: input.delegationMode, agent_version: agent.version }).select("*").single();
+  if (insertError) throw new Error(insertError.message);
+  return mapListing(data);
+}
+
+export async function listOwnListings(organizationId: string) {
+  const db = createAdminClient();
+  const { data, error } = await db.from("agent_listings").select("*").eq("organization_id", organizationId).order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(mapListing);
+}
+
+export async function updateListing(input: { organizationId: string; listingId: string; title?: string; description?: string; tags?: string[]; visibility?: "public" | "unlisted"; status?: "draft" | "published" | "suspended"; delegationMode?: DelegationMode }) {
+  const db = createAdminClient();
+  const patch: any = { updated_at: new Date().toISOString() };
+  if (input.title !== undefined) patch.title = input.title;
+  if (input.description !== undefined) patch.description = input.description;
+  if (input.tags !== undefined) patch.tags = normalizeCapabilities(input.tags);
+  if (input.visibility !== undefined) patch.visibility = input.visibility;
+  if (input.status !== undefined) patch.status = input.status;
+  if (input.delegationMode !== undefined) patch.delegation_mode = input.delegationMode;
+  const { data, error } = await db.from("agent_listings").update(patch).eq("organization_id", input.organizationId).eq("id", input.listingId).select("*").single();
+  if (error) throw new Error(error.message);
+  return mapListing(data);
+}
+
+export async function createShare(input: { providerOrganizationId: string; consumerOrganizationId: string; agentId: string; allowedCapabilities: string[]; maxCostCents: number; autoAccept: boolean; expiresAt?: string | null }) {
+  if (input.providerOrganizationId === input.consumerOrganizationId) throw new Error("Cross-organization sharing requires different organizations");
+  const db = createAdminClient();
+  const { data: agent, error: agentError } = await db.from("agents").select("capabilities").eq("organization_id", input.providerOrganizationId).eq("id", input.agentId).maybeSingle();
+  if (agentError) throw new Error(agentError.message);
+  if (!agent) throw new Error("Agent not found");
+  const allowed = negotiateCapabilities(agent.capabilities ?? [], input.allowedCapabilities.length ? input.allowedCapabilities : agent.capabilities ?? []);
+  if (allowed.length === 0) throw new Error("Share contains no supported capabilities");
+  const { data, error: shareError } = await db.from("agent_shares").upsert({ provider_organization_id: input.providerOrganizationId, consumer_organization_id: input.consumerOrganizationId, agent_id: input.agentId, allowed_capabilities: allowed, max_cost_cents: Math.max(1, input.maxCostCents), auto_accept: input.autoAccept, status: "active", expires_at: input.expiresAt ?? null }, { onConflict: "provider_organization_id,consumer_organization_id,agent_id" }).select("*").single();
+  if (shareError) throw new Error(shareError.message);
+  return mapShare(data);
+}
+
+export async function listShares(input: { organizationId: string }) {
+  const db = createAdminClient();
+  const { data, error } = await db.from("agent_shares").select("*").or("provider_organization_id.eq." + input.organizationId + ",consumer_organization_id.eq." + input.organizationId).order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(mapShare);
+}
+
+export async function updateShare(input: { providerOrganizationId: string; shareId: string; status?: "active" | "revoked"; autoAccept?: boolean; maxCostCents?: number; expiresAt?: string | null }) {
+  const db = createAdminClient();
+  const patch: any = { updated_at: new Date().toISOString() };
+  if (input.status !== undefined) patch.status = input.status;
+  if (input.autoAccept !== undefined) patch.auto_accept = input.autoAccept;
+  if (input.maxCostCents !== undefined) patch.max_cost_cents = Math.max(1, input.maxCostCents);
+  if (input.expiresAt !== undefined) patch.expires_at = input.expiresAt;
+  const { data, error } = await db.from("agent_shares").update(patch).eq("provider_organization_id", input.providerOrganizationId).eq("id", input.shareId).select("*").single();
+  if (error) throw new Error(error.message);
+  return mapShare(data);
+}
+
+export async function createDelegation(input: { sourceOrganizationId: string; sourceUserId: string; sourceTaskId?: string | null; sourceStepId?: string | null; sourceAgentId: string; listingId?: string | null; shareId?: string | null; objective: string; requestedCapabilities: string[]; maxCostCents: number; minTrustScore: number; expiresAt: string; idempotencyKey: string }) {
+  const db = createAdminClient();
+  const { data: sourceAgent, error: sourceAgentError } = await db.from("agents").select("id").eq("organization_id", input.sourceOrganizationId).eq("id", input.sourceAgentId).maybeSingle();
+  if (sourceAgentError) throw new Error(sourceAgentError.message);
+  if (!sourceAgent) throw new Error("Source agent not found");
+  if (input.sourceTaskId) {
+    const { data: task, error: taskError } = await db.from("tasks").select("id").eq("organization_id", input.sourceOrganizationId).eq("id", input.sourceTaskId).maybeSingle();
+    if (taskError) throw new Error(taskError.message);
+    if (!task) throw new Error("Source task not found");
+    if (input.sourceStepId) {
+      const { data: step, error: stepError } = await db.from("task_steps").select("id").eq("task_id", input.sourceTaskId).eq("id", input.sourceStepId).maybeSingle();
+      if (stepError) throw new Error(stepError.message);
+      if (!step) throw new Error("Source task step not found");
+    }
+  }
+  let listing: any = null;
+  let share: AgentShare | null = null;
+  if (input.shareId) {
+    const { data, error: shareLookupError } = await db.from("agent_shares").select("*").eq("id", input.shareId).eq("consumer_organization_id", input.sourceOrganizationId).eq("status", "active").maybeSingle();
+    if (shareLookupError) throw new Error(shareLookupError.message);
+    share = data ? mapShare(data) : null;
+    if (!share) throw new Error("Network share not found");
+    if (share.expiresAt && Date.parse(share.expiresAt) <= Date.now()) throw new Error("Network share has expired");
+  }
+  if (input.listingId) {
+    const { data, error: listingError } = await db.from("agent_listings").select("*").eq("id", input.listingId).eq("status", "published").maybeSingle();
+    if (listingError) throw new Error(listingError.message);
+    listing = data;
+    if (!listing) throw new Error("Published listing not found");
+    if (listing.organization_id === input.sourceOrganizationId) throw new Error("Network delegation requires a different provider organization");
+    if (share && (share.providerOrganizationId !== listing.organization_id || share.agentId !== listing.agent_id)) throw new Error("Listing does not match the selected network share");
+    if (!share && listing.visibility !== "public") throw new Error("An unlisted agent requires an active network share");
+  }
+  if (!listing && !share) throw new Error("listingId or shareId is required");
+  const providerOrg = listing?.organization_id ?? share!.providerOrganizationId;
+  const providerAgentId = listing?.agent_id ?? share!.agentId;
+  if (providerOrg === input.sourceOrganizationId) throw new Error("Network delegation requires a different provider organization");
+  const { data: agent, error: agentError } = await db.from("agents").select("*").eq("organization_id", providerOrg).eq("id", providerAgentId).maybeSingle();
+  if (agentError) throw new Error(agentError.message);
+  if (!agent || agent.status === "offline") throw new Error("Target agent is unavailable");
+  const requested = normalizeCapabilities(input.requestedCapabilities);
+  if (!supportsCapabilities(agent.capabilities ?? [], requested)) throw new Error("Target agent cannot satisfy all requested capabilities");
+  const { data: repRow, error: reputationError } = await db.from("agent_reputation").select("*").eq("organization_id", providerOrg).eq("agent_id", providerAgentId).maybeSingle();
+  if (reputationError) throw new Error(reputationError.message);
+  const score = repRow ? mapRep(repRow).trustScore : 50;
+  if (!trustScoreSatisfies(score, input.minTrustScore)) throw new Error("Target agent does not meet the requested trust threshold");
+  if (!share) {
+    const { data: shareRow, error: shareError } = await db.from("agent_shares").select("*").eq("provider_organization_id", providerOrg).eq("consumer_organization_id", input.sourceOrganizationId).eq("agent_id", providerAgentId).eq("status", "active").maybeSingle();
+    if (shareError) throw new Error(shareError.message);
+    share = shareRow ? mapShare(shareRow) : null;
+  }
+  if (share?.expiresAt && Date.parse(share.expiresAt) <= Date.now()) throw new Error("Network share has expired");
+  if (share && input.maxCostCents > share.maxCostCents) throw new Error("Requested budget exceeds the network share limit");
+  const negotiated = share ? negotiateCapabilities(agent.capabilities ?? [], requested, share.allowedCapabilities) : requested;
+  if (share && negotiated.length < requested.length) throw new Error("Network share does not allow all requested capabilities");
+  const maxCost = Math.min(input.maxCostCents, share?.maxCostCents ?? input.maxCostCents);
+  const status = share?.autoAccept ? "accepted" : "requested";
+  const contract = { version: "v5", executionMode: "isolated-model-only", sourceOrganizationId: input.sourceOrganizationId, providerOrganizationId: providerOrg, providerAgentId, listingId: listing?.id ?? null, requestedCapabilities: requested, negotiatedCapabilities: negotiated, objective: input.objective, maxCostCents: maxCost, minTrustScore: input.minTrustScore, expiresAt: input.expiresAt };
+  const requestId = "net_" + crypto.randomUUID();
+  const contractHash = hashJson(contract);
+  const payload = { source_organization_id: input.sourceOrganizationId, source_user_id: input.sourceUserId, source_task_id: input.sourceTaskId ?? null, source_step_id: input.sourceStepId ?? null, source_agent_id: input.sourceAgentId, provider_organization_id: providerOrg, provider_agent_id: providerAgentId, listing_id: listing?.id ?? null, share_id: share?.id ?? null, request_id: requestId, idempotency_key: input.idempotencyKey, requested_capabilities: requested, negotiated_capabilities: negotiated, objective: input.objective, contract, contract_hash: contractHash, min_trust_score: input.minTrustScore, trust_score_snapshot: score, max_cost_cents: maxCost, status, expires_at: input.expiresAt, attempt_count: 0, max_attempts: 2 };
+  const { data, error: insertError } = await db.from("network_delegations").insert(payload).select("*").single();
+  if (insertError?.code === "23505") {
+    const { data: existing, error: existingError } = await db.from("network_delegations").select("*").eq("source_organization_id", input.sourceOrganizationId).eq("idempotency_key", input.idempotencyKey).single();
+    if (existingError) throw new Error(existingError.message);
+    return mapDelegation(existing);
+  }
+  if (insertError) throw new Error(insertError.message);
+  return mapDelegation(data);
+}
+
+export async function getDelegationById(id: string) {
+  const db = createAdminClient();
+  const { data, error } = await db.from("network_delegations").select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapDelegation(data) : null;
+}
+
+export async function getDelegation(id: string, organizationId: string) {
+  const db = createAdminClient();
+  const { data, error } = await db.from("network_delegations").select("*").eq("id", id).or("source_organization_id.eq." + organizationId + ",provider_organization_id.eq." + organizationId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapDelegation(data) : null;
+}
+
+export async function resolveDelegation(input: { delegationId: string; providerOrganizationId: string; decision: "accept" | "reject"; allowedCapabilities?: string[]; maxCostCents?: number; autoAccept?: boolean; resolvedBy: string }) {
+  const db = createAdminClient();
+  const { data: d, error: lookupError } = await db.from("network_delegations").select("*").eq("id", input.delegationId).eq("provider_organization_id", input.providerOrganizationId).maybeSingle();
+  if (lookupError) throw new Error(lookupError.message);
+  if (!d) return null;
+  const delegation = mapDelegation(d);
+  if (delegation.status !== "requested") throw new Error("Delegation is not awaiting provider resolution");
+  if (Date.parse(delegation.expiresAt) <= Date.now()) throw new Error("Delegation has expired");
+  if (input.decision === "reject") {
+    const { data, error: rejectError } = await db.from("network_delegations").update({ status: "rejected", provider_resolved_by: input.resolvedBy, completed_at: new Date().toISOString(), error: "Rejected by provider" }).eq("id", delegation.id).eq("status", "requested").select("*").single();
+    if (rejectError) throw new Error(rejectError.message);
+    return mapDelegation(data);
+  }
+  const { data: agent, error: agentError } = await db.from("agents").select("capabilities").eq("organization_id", delegation.providerOrganizationId).eq("id", delegation.providerAgentId).maybeSingle();
+  if (agentError) throw new Error(agentError.message);
+  if (!agent) throw new Error("Provider agent not found");
+  const negotiated = negotiateCapabilities(agent.capabilities ?? [], delegation.requestedCapabilities, input.allowedCapabilities);
+  if (!isCapabilityContractValid(agent.capabilities ?? [], delegation.requestedCapabilities, negotiated)) throw new Error("Provider negotiation is invalid");
+  const maxCost = Math.min(delegation.maxCostCents, Math.max(1, input.maxCostCents ?? delegation.maxCostCents));
+  const share = await createShare({ providerOrganizationId: delegation.providerOrganizationId, consumerOrganizationId: delegation.sourceOrganizationId, agentId: delegation.providerAgentId, allowedCapabilities: negotiated, maxCostCents: maxCost, autoAccept: Boolean(input.autoAccept), expiresAt: delegation.expiresAt });
+  const contract = { ...(delegation.contract as Record<string, unknown>), negotiatedCapabilities: negotiated, maxCostCents: maxCost };
+  const { data, error: acceptError } = await db.from("network_delegations").update({ status: "accepted", share_id: share.id, negotiated_capabilities: negotiated, contract, contract_hash: hashJson(contract), provider_resolved_by: input.resolvedBy, error: null }).eq("id", delegation.id).eq("status", "requested").select("*").single();
+  if (acceptError) throw new Error(acceptError.message);
+  return mapDelegation(data);
+}
+
+export async function claimDelegation(id: string, sourceOrganizationId: string, workerId: string) {
+  const db = createAdminClient();
+  const now = new Date().toISOString();
+  const until = new Date(Date.now() + Number(process.env.NETWORK_LEASE_SECONDS ?? "300") * 1000).toISOString();
+  const { data, error } = await db.from("network_delegations").update({ status: "running", lease_owner: workerId, lease_until: until, started_at: new Date().toISOString(), attempt_count: 1 }).eq("id", id).eq("source_organization_id", sourceOrganizationId).eq("status", "accepted").or("lease_until.is.null,lease_until.lt." + now).gt("expires_at", now).select("*").maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapDelegation(data) : null;
+}
+
+export async function listAcceptedDelegations(limit = 10) {
+  const db = createAdminClient();
+  const { data, error } = await db.from("network_delegations").select("id,source_organization_id").eq("status", "accepted").gt("expires_at", new Date().toISOString()).order("created_at", { ascending: true }).limit(limit);
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function completeDelegation(id: string, result: unknown, spentCostCents: number, latencyMs: number) {
+  const db = createAdminClient();
+  const { data: updated, error: updateError } = await db.from("network_delegations").update({ status: "completed", result, result_hash: hashJson(result), spent_cost_cents: spentCostCents, completed_at: new Date().toISOString(), latency_ms: Math.max(0, Math.round(latencyMs)), lease_owner: null, lease_until: null }).eq("id", id).eq("status", "running").select("*").single();
+  if (updateError) throw new Error(updateError.message);
+  const { error: reputationError } = await db.rpc("record_agent_reputation", { p_organization_id: updated.provider_organization_id, p_agent_id: updated.provider_agent_id, p_success: true, p_latency_ms: Math.max(0, Math.round(latencyMs)), p_delegation_id: id, p_source_organization_id: updated.source_organization_id, p_now: new Date().toISOString() });
+  if (reputationError) console.warn("Network reputation update failed after completed delegation", reputationError.message);
+  return mapDelegation(updated);
+}
+
+export async function failDelegation(id: string, errorMessage: string, latencyMs: number) {
+  const db = createAdminClient();
+  const { data: d, error: lookupError } = await db.from("network_delegations").select("*").eq("id", id).single();
+  if (lookupError) throw new Error(lookupError.message);
+  const { data, error: updateError } = await db.from("network_delegations").update({ status: "failed", error: errorMessage.slice(0, 500), completed_at: new Date().toISOString(), latency_ms: Math.max(0, Math.round(latencyMs)), lease_owner: null, lease_until: null }).eq("id", id).eq("status", "running").select("*").single();
+  if (updateError) throw new Error(updateError.message);
+  const { error: reputationError } = await db.rpc("record_agent_reputation", { p_organization_id: d.provider_organization_id, p_agent_id: d.provider_agent_id, p_success: false, p_latency_ms: Math.max(0, Math.round(latencyMs)), p_delegation_id: id, p_source_organization_id: d.source_organization_id, p_now: new Date().toISOString() });
+  if (reputationError) console.warn("Network reputation update failed after failed delegation", reputationError.message);
+  return mapDelegation(data);
+}

@@ -5,11 +5,13 @@ import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 type Task = any;
 type Agent = any;
 type Connector = any;
+type NetworkAgent = any;
 type Approval = { id: string; step_id: string; status: string; reason: string; action_type: string; connector_request_id?: string | null };
 
 export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [networkAgents, setNetworkAgents] = useState<NetworkAgent[]>([]);
   const [org, setOrg] = useState<any>(null);
   const [goal, setGoal] = useState("Prepare a concise weekly business report");
   const [task, setTask] = useState<Task>(null);
@@ -24,6 +26,13 @@ export default function Home() {
     setConnectors(data.connectors ?? []);
   }
 
+  async function loadNetwork() {
+    const res = await fetch("/api/network/agents");
+    if (!res.ok) return;
+    const data = await res.json();
+    setNetworkAgents(data.agents ?? []);
+  }
+
   async function loadAgents() {
     const res = await fetch("/api/agents");
     if (!res.ok) {
@@ -33,7 +42,7 @@ export default function Home() {
     const data = await res.json();
     setOrg(data.organization);
     setAgents(data.agents ?? []);
-    await loadConnectors();
+    await Promise.all([loadConnectors(), loadNetwork()]);
   }
 
   useEffect(() => { void loadAgents(); }, []);
@@ -98,24 +107,25 @@ export default function Home() {
   return <main className="shell">
     <header className="topbar">
       <div>
-        <div className="eyebrow">AGENT CONTROL PLANE · V4</div>
+        <div className="eyebrow">AGENT CONTROL PLANE · V5</div>
         <h1>Orchestrator</h1>
       </div>
       <div className="topMeta">
         <span>{org?.name ?? "No workspace"}</span>
         <span>{health.healthy}/{health.total} agents healthy</span>
         <span>{connectorHealth.active}/{connectorHealth.total} connectors active</span>
+        <span>{networkAgents.length} network agents</span>
         <a href="/auth/sign-in">Account</a>
       </div>
     </header>
 
     <section className="hero card">
       <div>
-        <div className="pill">AGENT INFRASTRUCTURE</div>
+        <div className="pill">AGENT NETWORK</div>
         <h2>Intent → plan → parallel agents → signed connectors → verification.</h2>
         <p className="muted">
-          V4 adds per-agent identity, encrypted connector credentials, least-privilege bindings,
-          signed expiring requests, provenance, circuit breakers and bounded fallback routing.
+          V5 adds controlled agent-network discovery, explicit cross-organization sharing,
+          capability negotiation, durable delegation, bounded trust signals and isolated model-only execution.
         </p>
       </div>
       <div className="healthGrid">
@@ -123,6 +133,7 @@ export default function Home() {
         <Metric label="Planner" value="DAG + validator" />
         <Metric label="Connectors" value={String(connectorHealth.total)} />
         <Metric label="Circuit" value={connectorHealth.open ? `${connectorHealth.open} open` : "closed"} />
+        <Metric label="Network" value={String(networkAgents.length)} />
       </div>
     </section>
 
@@ -144,7 +155,7 @@ export default function Home() {
       </div>
       <div className="muted small">
         A validated plan is persisted before execution. Independent ready steps execute together;
-        retries, approvals and connector provenance are checkpointed.
+        retries, approvals, connector provenance and network contracts are checkpointed.
       </div>
       {message && <div className="error">{message}</div>}
     </section>
@@ -167,11 +178,12 @@ export default function Home() {
 
       <div className="card">
         <div className="sectionTitle">Execution</div>
-        {task ? <TaskPanel task={task} /> : <div className="empty">Run a goal to create a durable V4 task.</div>}
+        {task ? <TaskPanel task={task} /> : <div className="empty">Run a goal to create a durable V5 task.</div>}
       </div>
     </section>
 
     <ConnectorPanel connectors={connectors} />
+    <NetworkPanel agents={networkAgents} />
   </main>;
 }
 
@@ -241,23 +253,38 @@ function ConnectorPanel({ connectors }: { connectors: Connector[] }) {
   return <section className="card infrastructure">
     <div className="sectionTitle">Connector infrastructure</div>
     {connectors.length === 0
-      ? <div className="empty">
-          No connectors registered. V4 keeps external side effects disabled until an explicit
-          connector adapter is installed.
-        </div>
+      ? <div className="empty">No connectors registered. External side effects remain disabled until an explicit connector adapter is installed.</div>
       : connectors.map((connector) => <div className="agentRow" key={connector.id}>
           <div className="agentDot" />
           <div>
             <b>{connector.name}</b>
-            <div className="muted small">
-              {connector.authScheme} · v{connector.version} · fallback {connector.fallbackConnectorId ? "configured" : "none"}
-            </div>
+            <div className="muted small">{connector.authScheme} · v{connector.version} · fallback {connector.fallbackConnectorId ? "configured" : "none"}</div>
           </div>
           <div className="agentRight">
             <span>{connector.status}</span>
             <span>circuit {connector.circuitState}</span>
           </div>
         </div>)}
+  </section>;
+}
+
+function NetworkPanel({ agents }: { agents: NetworkAgent[] }) {
+  return <section className="card infrastructure">
+    <div className="sectionTitle">Agent network</div>
+    {agents.length === 0
+      ? <div className="empty">No published or explicitly shared network agents are available yet.</div>
+      : agents.map((item) => <div className="agentRow" key={item.listing.id}>
+          <div className="agentDot" />
+          <div>
+            <b>{item.listing.title}</b>
+            <div className="muted small">{item.organizationName} · {item.listing.capabilities.slice(0, 5).join(" · ")}</div>
+          </div>
+          <div className="agentRight">
+            <span>{item.access}</span>
+            <span>trust {item.reputation?.trustScore ?? 50}</span>
+          </div>
+        </div>)}
+    <div className="muted small">Discovery exposes metadata only. Cross-organization execution requires provider authorization, negotiated capabilities, an explicit budget and an isolated model-only contract.</div>
   </section>;
 }
 
