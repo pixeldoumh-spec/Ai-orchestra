@@ -1,0 +1,5 @@
+type EnterprisePermission="enterprise.read"|"enterprise.manage"|"team.manage"|"member.manage"|"billing.read"|"billing.manage"|"audit.read"|"runtime.run";
+type OrgRole="owner"|"admin"|"operator"|"billing"|"auditor"|"viewer"|"member";
+const matrix:Record<OrgRole,EnterprisePermission[]>={owner:["enterprise.read","enterprise.manage","team.manage","member.manage","billing.read","billing.manage","audit.read","runtime.run"],admin:["enterprise.read","enterprise.manage","team.manage","member.manage","billing.read","billing.manage","audit.read","runtime.run"],operator:["enterprise.read","runtime.run"],billing:["enterprise.read","billing.read","billing.manage"],auditor:["enterprise.read","audit.read"],viewer:["enterprise.read"],member:["enterprise.read","runtime.run"]};
+export function hasEnterprisePermission(role:string,permission:EnterprisePermission){return(matrix[role as OrgRole]??[]).includes(permission);}
+export function rolePermissions(role:string){return[...(matrix[role as OrgRole]??[])];}

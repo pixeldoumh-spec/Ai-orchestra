@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOrganizationForUser, requireUser } from "@/lib/auth";
 import { processTask } from "@/lib/orchestrator/worker";
+import { hasEnterprisePermission } from "@/lib/enterprise/rbac";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -8,6 +9,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { id } = await context.params;
     const org = await getOrganizationForUser(db, user.id, new URL(request.url).searchParams.get("organizationId"));
     if (!org) return NextResponse.json({ error: "Organization not found" }, { status: 404 });
+    if (!hasEnterprisePermission(org.role, "runtime.run")) return NextResponse.json({ error: "Runtime execution permission is required" }, { status: 403 });
     return NextResponse.json(await processTask(id, org.id));
   } catch (error) {
     const status = error instanceof Response ? error.status : 500;

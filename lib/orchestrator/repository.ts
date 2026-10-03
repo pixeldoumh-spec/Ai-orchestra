@@ -42,7 +42,7 @@ export async function createTask(input: {
     idempotency_key: input.idempotencyKey,
     max_cost_cents: input.maxCostCents,
     spent_cost_cents: 0,
-    plan_version: "v4.0.0",
+    plan_version: "v5.0.0",
     plan_revision: 1,
     replan_count: 0,
     planner_model: input.plannerModel ?? null,
@@ -63,7 +63,7 @@ export async function createTask(input: {
     await db.from("tasks").delete().eq("id", taskId);
     throw new Error(stepError.message);
   }
-  await appendEvent(taskId, input.organizationId, "task.queued", { goal: input.goal, planVersion: "v4.0.0", stepCount: input.plan.steps.length });
+  await appendEvent(taskId, input.organizationId, "task.queued", { goal: input.goal, planVersion: "v5.0.0", stepCount: input.plan.steps.length });
   await appendEvent(taskId, input.organizationId, "plan.created", { planVersion: "v4.0.0", revision: 1, rationale: input.plan.rationale ?? null });
   return data;
 }

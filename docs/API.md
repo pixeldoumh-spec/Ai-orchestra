@@ -1,87 +1,37 @@
-# V4 API Contract
+# API
 
-## Authentication
+## Existing orchestration
 
-Browser requests use Supabase SSR cookies. Tenant-returning routes authenticate the caller and resolve an organization membership before reading or mutating workflow state.
+POST /api/organizations
+GET /api/agents
+POST /api/tasks
+GET /api/tasks/:id
+POST /api/tasks/:id/start
+POST /api/tasks/:id/approve
+GET /api/connectors and connector administration routes
 
-## Endpoints
+## Enterprise
 
-`GET /api/health`
-Returns service health/version without authentication.
+GET /api/enterprise — organization entitlements, policy, teams, members, SLA definitions, monthly usage and recent audit preview.
 
-`POST /api/organizations`
-Creates a workspace for the authenticated user and seeds the default agent registry.
+PATCH /api/enterprise — owner/admin updates entitlements or policy.
 
-`GET /api/agents?organizationId=<uuid>`
-Returns the caller's organization and registered agents.
+GET/POST /api/enterprise/teams — list/create teams.
 
-`POST /api/tasks`
-Headers: `Idempotency-Key: <unique-client-key>`
-Body: `{ "goal": string, "organizationId?": string, "maxCostCents?": number }`
-The route builds a V4 plan through the planner, validates it, then persists the task and plan revision before execution.
+POST /api/enterprise/teams/:id/members — add or update an existing organization member in a team.
 
-`GET /api/tasks/<taskId>`
-Returns the task, current and historical plan steps, event trail, artifacts and approvals for the caller's organization.
+PATCH /api/enterprise/members/:userId — change a non-owner member RBAC role.
 
-`POST /api/tasks/<taskId>/start`
-Authenticated control-plane kick. Claims the task and processes its current ready frontier. Production scheduling should prefer `/api/internal/worker`.
+POST /api/enterprise/invitations — create a seven-day invitation; raw token is returned once and is not emailed.
 
-`POST /api/tasks/<taskId>/approve`
-Body: `{ "approvalId": string, "decision": "approve" | "reject" }`
-Resolves exactly the addressed pending approval. Expired approvals are rejected and recorded.
+POST /api/enterprise/invitations/accept — redeem a matching invitation from a signed-in account.
 
-`POST /api/internal/worker`
-Header: `x-worker-secret: <server-only-secret>`
-Trusted scheduler endpoint. Claims and processes eligible tasks.
+GET /api/enterprise/usage — usage aggregates and recent metering ledger for owner/admin/billing roles.
 
-## Task state machine
+GET /api/enterprise/audit — audit entries for owner/admin/auditor roles.
 
-```text
-queued -> running -> verified
-            |
-            +-> awaiting_approval -> queued
-            |
-            +-> failed
+## Database enforcement
 
-queued/running -> cancelled
-```
+Task admission is enforced in Postgres before insertion. It checks maximum task cost, monthly task count, monthly spend plus reservations and allowed execution region. A separate status trigger enforces organization concurrency when a task transitions to running. Agent and member ceilings are also enforced by database triggers.
 
-Recovery replanning creates a new plan revision while preserving the historical steps of prior revisions. A retry keeps a step in `queued` and uses `run_after` for bounded exponential backoff; the worker also copies the earliest retry wake-up onto the task's `run_after` field.
-
-## V4 invariants
-
-1. A plan must be an acyclic DAG with 2–16 steps.
-2. Every referenced agent must be available and non-offline.
-3. Every terminal work step must be covered by a verification step.
-4. Independent ready steps may execute concurrently, subject to the task budget ceiling.
-5. Cumulative step attempt spend is reconciled to task spend after each execution frontier.
-6. A task can only become `verified` after a verified step in the current plan revision passes the verification contract.
-7. High/critical-risk tools require approval; the exact approval ID must be resolved.
-8. Duplicate `(organization_id, idempotency_key)` returns the existing task.
-9. Tenant authorization remains explicit at the application boundary and RLS-protected in Supabase.
-
-## Connector endpoints
-
-`GET /api/connectors?organizationId=<uuid>` returns connector metadata and agent bindings. Secret material is excluded.
-
-`POST /api/connectors` creates a connector. Owner/admin only. `baseUrl`, when provided, must use HTTPS.
-
-`PATCH /api/connectors/<connectorId>` changes connector status. Owner/admin only.
-
-`GET /api/connectors/<connectorId>/credentials` returns non-secret credential metadata.
-
-`POST /api/connectors/<connectorId>/credentials` stores an encrypted credential. Owner/admin only. The plaintext secret is never returned.
-
-`GET /api/connectors/<connectorId>/bindings` returns agent bindings for that connector.
-
-`POST /api/connectors/<connectorId>/bindings` binds an agent with explicit tool allowlists, scopes and optional credential. Owner/admin only.
-
-`POST /api/connectors/<connectorId>/health` with `{"action":"reset_circuit"}` resets a connector circuit. Owner/admin only.
-
-## V4 invariants
-
-10. Connector routes never cross organization boundaries.
-11. Credential plaintext and agent private keys are server-only and encrypted at rest.
-12. A connector credential must match the connector auth scheme and be active, unexpired and scoped for the requested tool.
-13. Prepared connector requests expire and use unique nonces; provenance stores hashes rather than raw payload copies.
-14. Circuit health updates are atomic; fallback traversal is bounded and cycle-safe.
+No endpoint returns connector secrets, encrypted private-key material, invitation token hashes, raw prompts or raw connector payloads.

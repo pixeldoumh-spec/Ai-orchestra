@@ -1,0 +1,1 @@
+export{hasEnterprisePermission,rolePermissions}from"@/lib/core/enterprise/rbac";

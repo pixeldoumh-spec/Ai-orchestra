@@ -1,36 +1,14 @@
-import { z } from "zod";
-
-export const createTaskSchema = z.object({
-  goal: z.string().trim().min(5).max(2000),
-  organizationId: z.string().uuid().optional(),
-  maxCostCents: z.number().int().min(0).max(1_000_000).optional(),
-});
-
-export const provisionOrgSchema = z.object({ name: z.string().trim().min(2).max(120) });
-
-
-export const connectorCreateSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  kind: z.enum(["reserved", "http"]),
-  baseUrl: z.string().url().refine((value) => value.startsWith("https://"), "baseUrl must use HTTPS").nullable().optional(),
-  authScheme: z.enum(["none", "bearer", "api_key", "hmac"]).default("none"),
-  version: z.string().trim().min(1).max(40).default("1.0.0"),
-  fallbackConnectorId: z.string().uuid().nullable().optional(),
-});
-export const connectorCredentialSchema = z.object({
-  name: z.string().trim().min(2).max(120),
-  secret: z.string().min(1).max(100000),
-  scopes: z.array(z.string().trim().min(1).max(120)).max(32).default([]),
-  authScheme: z.enum(["none", "bearer", "api_key", "hmac"]),
-  expiresAt: z.string().datetime().nullable().optional(),
-});
-export const connectorBindingSchema = z.object({
-  agentId: z.string().min(1).max(120),
-  credentialId: z.string().uuid().nullable().optional(),
-  allowedTools: z.array(z.string().regex(/^[a-z][a-z0-9._-]{1,80}$/)).min(1).max(32),
-  scopes: z.array(z.string().trim().min(1).max(120)).max(32).default([]),
-  priority: z.number().int().min(0).max(10000).default(100),
-});
-export const connectorStatusSchema = z.object({
-  status: z.enum(["active", "degraded", "disabled"]),
-});
+import{z}from"zod";
+export const createTaskSchema=z.object({goal:z.string().trim().min(5).max(2000),organizationId:z.string().uuid().optional(),maxCostCents:z.number().int().min(0).max(1_000_000).optional()});
+export const provisionOrgSchema=z.object({name:z.string().trim().min(2).max(120)});
+export const connectorCreateSchema=z.object({name:z.string().trim().min(2).max(120),kind:z.enum(["reserved","http"]),baseUrl:z.string().url().refine(v=>v.startsWith("https://"),"baseUrl must use HTTPS").nullable().optional(),authScheme:z.enum(["none","bearer","api_key","hmac"]).default("none"),version:z.string().trim().min(1).max(40).default("1.0.0"),fallbackConnectorId:z.string().uuid().nullable().optional()});
+export const connectorCredentialSchema=z.object({name:z.string().trim().min(2).max(120),secret:z.string().min(1).max(100000),scopes:z.array(z.string().trim().min(1).max(120)).max(32).default([]),authScheme:z.enum(["none","bearer","api_key","hmac"]),expiresAt:z.string().datetime().nullable().optional()});
+export const connectorBindingSchema=z.object({agentId:z.string().min(1).max(120),credentialId:z.string().uuid().nullable().optional(),allowedTools:z.array(z.string().regex(/^[a-z][a-z0-9._-]{1,80}$/)).min(1).max(32),scopes:z.array(z.string().trim().min(1).max(120)).max(32).default([]),priority:z.number().int().min(0).max(10000).default(100)});
+export const connectorStatusSchema=z.object({status:z.enum(["active","degraded","disabled"])});
+export const enterpriseSettingsSchema=z.object({plan:z.enum(["starter","team","enterprise"]),monthlyTaskLimit:z.number().int().min(1).max(100000000),monthlySpendLimitCents:z.number().int().min(0).max(2_000_000_000),maxAgents:z.number().int().min(1).max(10000),maxMembers:z.number().int().min(1).max(100000),maxConcurrency:z.number().int().min(1).max(10000),maxTaskCostCents:z.number().int().min(0).max(1_000_000_000),primaryRegion:z.string().trim().min(2).max(64),allowedRegions:z.array(z.string().trim().min(2).max(64)).min(1).max(32),dataResidency:z.enum(["in-region","global","restricted"]),retentionDays:z.number().int().min(1).max(3650),alertThresholdPercent:z.number().int().min(1).max(100),features:z.record(z.string(),z.boolean()).default({})});
+export const enterprisePolicySchema=z.object({requireApprovalForExternal:z.boolean(),minApprovalRisk:z.enum(["high","critical"]),allowHttpConnectors:z.boolean(),allowExternalActions:z.boolean(),maxTaskCostCents:z.number().int().min(0).max(1_000_000_000),retentionDays:z.number().int().min(1).max(3650)});
+export const enterpriseTeamSchema=z.object({name:z.string().trim().min(2).max(80),description:z.string().trim().max(500).default("")});
+export const enterpriseTeamMemberSchema=z.object({userId:z.string().uuid(),role:z.enum(["lead","member"]).default("member")});
+export const enterpriseMemberRoleSchema=z.object({role:z.enum(["admin","operator","billing","auditor","viewer","member"])});
+export const enterpriseInvitationSchema=z.object({email:z.string().email().max(320),role:z.enum(["admin","operator","billing","auditor","viewer","member"]).default("member")});
+export const enterpriseInvitationAcceptSchema=z.object({token:z.string().min(20).max(200)});

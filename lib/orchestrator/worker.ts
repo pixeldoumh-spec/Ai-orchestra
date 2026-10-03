@@ -6,6 +6,7 @@ import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, r
 import type { AgentDefinition, ModelAdapter, PersistedStep, PersistedTask } from "./types";
 import { invokeTool } from "@/lib/tools/gateway";
 import { readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
+import { recordEnterpriseUsage } from "@/lib/enterprise/metering";
 
 const MAX_TOOL_REQUESTS_PER_STEP = 8;
 
@@ -70,6 +71,7 @@ export async function processTask(taskId: string, organizationId: string, worker
           agent,
           priorResults: snapshot.steps.filter((x) => x.plan_revision === snapshot.plan_revision && x.status === "verified").map((x) => ({ stepId: stepPlanId(x), result: x.result })),
           model,
+          executionRegion: snapshot.execution_region,
         });
       }));
 
@@ -138,8 +140,9 @@ async function runStep(input: {
   agent: AgentDefinition;
   priorResults: unknown[];
   model: ModelAdapter;
+  executionRegion?: string | null;
 }): Promise<{ stepId: string; status: "verified" | "failed" | "awaiting_approval" | "queued"; usageCents: number }> {
-  const { taskId, organizationId, goal, maxCostCents, step, agent, priorResults, model } = input;
+  const { taskId, organizationId, goal, maxCostCents, step, agent, priorResults, model, executionRegion } = input;
   const attempt = step.attempt_count + 1;
   await updateStep(step.id, { status: "running", attempt_count: attempt, started_at: new Date().toISOString(), error: null });
   await appendEvent(taskId, organizationId, "step.started", { stepId: step.id, agentId: agent.id, attempt, kind: step.kind });
@@ -168,6 +171,8 @@ async function runStep(input: {
     });
 
     await recordUsage(step.id, result.usageCents);
+    const metering = await recordEnterpriseUsage({ organizationId, taskId, stepId: step.id, costCents: result.usageCents, region: executionRegion ?? process.env.ENTERPRISE_DEFAULT_REGION ?? "ap-south-1" });
+    if (metering?.budget_exceeded) throw new Error("Enterprise monthly spend ceiling exceeded by actual usage");
 
     if (result.usageCents > agent.budgetCents) throw new Error(`Agent budget exceeded: ${result.usageCents} > ${agent.budgetCents} cents`);
     if (result.usageCents > maxCostCents) throw new Error(`Single step exceeds task budget: ${result.usageCents} > ${maxCostCents} cents`);

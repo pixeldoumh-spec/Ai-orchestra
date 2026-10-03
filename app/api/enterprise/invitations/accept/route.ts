@@ -1,0 +1,5 @@
+import{NextResponse}from"next/server";
+import{requireUser}from"@/lib/auth";
+import{enterpriseInvitationAcceptSchema}from"@/lib/api";
+import{acceptInvitation,appendAuditLog,getEnterpriseControlPlane}from"@/lib/enterprise/repository";
+export async function POST(request:Request){try{const{user}=await requireUser();const parsed=enterpriseInvitationAcceptSchema.safeParse(await request.json().catch(()=>({})));if(!parsed.success)return NextResponse.json({error:parsed.error.flatten()},{status:400});const result=await acceptInvitation(user.id,user.email??"",parsed.data.token);const control=await getEnterpriseControlPlane(result.organizationId);if(control.members.length>control.entitlements.maxMembers)throw new Error("Enterprise member ceiling reached");await appendAuditLog({organizationId:result.organizationId,actorType:"user",actorId:user.id,action:"member.invitation.accepted",resourceType:"enterprise_invitation",metadata:{role:result.role}});return NextResponse.json(result);}catch(e){const status=e instanceof Response?e.status:500;return NextResponse.json({error:e instanceof Error?e.message:"Unknown error"},{status});}}

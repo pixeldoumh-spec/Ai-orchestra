@@ -1,0 +1,8 @@
+export type EnterprisePlan="starter"|"team"|"enterprise";
+export type OrgRole="owner"|"admin"|"operator"|"billing"|"auditor"|"viewer"|"member";
+export type EnterprisePermission="enterprise.read"|"enterprise.manage"|"team.manage"|"member.manage"|"billing.read"|"billing.manage"|"audit.read"|"runtime.run";
+export interface EnterpriseEntitlements{organizationId:string;plan:EnterprisePlan;monthlyTaskLimit:number;monthlySpendLimitCents:number;maxAgents:number;maxMembers:number;maxConcurrency:number;maxTaskCostCents:number;primaryRegion:string;allowedRegions:string[];dataResidency:string;retentionDays:number;alertThresholdPercent:number;features:Record<string,boolean>;}
+export interface EnterprisePolicy{organizationId:string;requireApprovalForExternal:boolean;minApprovalRisk:"high"|"critical";allowHttpConnectors:boolean;allowExternalActions:boolean;maxTaskCostCents:number;retentionDays:number;}
+export interface EnterpriseSlaPolicy{id:string;organizationId:string;name:string;availabilityBps:number;taskP95Ms:number;supportResponseMinutes:number;active:boolean;}
+export interface EnterpriseTeam{id:string;organizationId:string;name:string;description:string;createdBy:string;createdAt:string;}
+export interface EnterpriseAuditLog{id:number;organizationId:string;actorType:string;actorId:string|null;action:string;resourceType:string;resourceId:string|null;result:"success"|"denied"|"failed";metadata:Record<string,unknown>;createdAt:string;}

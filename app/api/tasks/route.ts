@@ -5,6 +5,7 @@ import { normalizeIdempotencyKey } from "@/lib/core/idempotency";
 import { createTask } from "@/lib/orchestrator/repository";
 import { ensureDefaultAgents, listAgents } from "@/lib/orchestrator/registry";
 import { planWorkflow } from "@/lib/orchestrator/planner";
+import { hasEnterprisePermission } from "@/lib/enterprise/rbac";
 
 export async function POST(request: Request) {
   try {
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
 
     const org = await getOrganizationForUser(db, user.id, parsed.data.organizationId);
     if (!org) return NextResponse.json({ error: "Create or select an organization first" }, { status: 400 });
+    if (!hasEnterprisePermission(org.role, "runtime.run")) return NextResponse.json({ error: "Runtime execution permission is required" }, { status: 403 });
     await ensureDefaultAgents(org.id);
     const agents = await listAgents(org.id);
     const plan = await planWorkflow({ goal: parsed.data.goal, agents });
