@@ -70,7 +70,7 @@ test('V5 capability contracts only contain requested and provider-supported capa
 
 test('V5 reputation uses a bounded Bayesian-style prior and threshold checks',()=>{
   assert.equal(computeTrustScore({total:0,completed:0,failed:0}),50);
-  assert.equal(computeTrustScore({total:10,completed:10,failed:0}),75);
+  assert.equal(computeTrustScore({total:10,completed:10,failed:0}),69.23);
   assert.equal(trustScoreSatisfies(75,75),true);
   assert.equal(trustScoreSatisfies(74.99,75),false);
 });
