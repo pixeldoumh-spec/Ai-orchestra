@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Agent Orchestrator V2",
-  description: "Durable, policy-aware multi-agent orchestration control plane",
+  title: "Orchestrator — Agent Control Plane",
+  description: "V1 control plane for reliable autonomous AI workflows.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
