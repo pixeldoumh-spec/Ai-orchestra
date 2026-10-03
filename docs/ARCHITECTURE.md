@@ -1,4 +1,4 @@
-# V3 Architecture Notes
+# V5 Architecture Notes
 
 ## 1. Planner is untrusted input, validator is authority
 
@@ -45,3 +45,14 @@ Agent identity, credentials and connector execution now sit behind explicit serv
 Credential plaintext is never stored. AES-256-GCM ciphertext carries an explicit key version, while browser roles cannot read credential or private-key rows. Tool allowlists and credential scopes are checked before a connector route is accepted.
 
 Connector requests receive a unique request id, nonce, expiry, payload hash and agent signature. Provenance stores hashes rather than duplicating raw tool payloads. Connector outcome recording uses a row-locked Postgres function so failure counters and health events change atomically.
+
+
+## V5 agent network
+
+Marketplace listings are metadata and never grant execution authority. A cross-organization delegation is authorized by an explicit provider share or by provider acceptance of a request, then revalidated at execution time.
+
+Capability negotiation is fail-closed: the target agent must support every requested capability. A provider share can further narrow the negotiated set. Delegations persist the negotiated contract, contract hash, budget, expiry and trust snapshot.
+
+Remote execution is model-only. The executor loads the target agent definition and model selection, but never copies the target agent's connector bindings, credentials, tool permissions or hidden task context into the remote prompt.
+
+Provider acceptance may create a reusable share for future requests. Automatic acceptance is bounded by the stored capabilities, budget and expiry. Revocation prevents new work and causes accepted work to fail closed when execution revalidates the share.
