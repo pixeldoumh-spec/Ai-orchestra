@@ -6,6 +6,7 @@ on:
 jobs:
   quality:
     # V5 enterprise release gate.
+    # Post-merge main verification.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
