@@ -9,7 +9,7 @@ type Approval = { id: string; step_id: string; status: string; reason: string; a
 
 export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);\n  const [networkAgents, setNetworkAgents] = useState<any[]>([]);
   const [org, setOrg] = useState<any>(null);
   const [goal, setGoal] = useState("Prepare a concise weekly business report");
   const [task, setTask] = useState<Task>(null);
@@ -24,7 +24,7 @@ export default function Home() {
     setConnectors(data.connectors ?? []);
   }
 
-  async function loadAgents() {
+  async function loadNetwork() { const res = await fetch("/api/network/agents"); if (!res.ok) return; const data = await res.json(); setNetworkAgents(data.agents ?? []); }\n\n  async function loadAgents() {
     const res = await fetch("/api/agents");
     if (!res.ok) {
       if (res.status === 401) setMessage("Sign in to use the control plane.");
@@ -33,7 +33,7 @@ export default function Home() {
     const data = await res.json();
     setOrg(data.organization);
     setAgents(data.agents ?? []);
-    await loadConnectors();
+    await Promise.all([loadConnectors(), loadNetwork()]);
   }
 
   useEffect(() => { void loadAgents(); }, []);
@@ -98,20 +98,20 @@ export default function Home() {
   return <main className="shell">
     <header className="topbar">
       <div>
-        <div className="eyebrow">AGENT CONTROL PLANE · V4</div>
+        <div className="eyebrow">AGENT CONTROL PLANE · V5</div>
         <h1>Orchestrator</h1>
       </div>
       <div className="topMeta">
         <span>{org?.name ?? "No workspace"}</span>
         <span>{health.healthy}/{health.total} agents healthy</span>
-        <span>{connectorHealth.active}/{connectorHealth.total} connectors active</span>
+        <span>{connectorHealth.active}/{connectorHealth.total} connectors active</span><span>{networkAgents.length} network agents</span>
         <a href="/auth/sign-in">Account</a>
       </div>
     </header>
 
     <section className="hero card">
       <div>
-        <div className="pill">AGENT INFRASTRUCTURE</div>
+        <div className="pill">AGENT NETWORK</div>
         <h2>Intent → plan → parallel agents → signed connectors → verification.</h2>
         <p className="muted">
           V4 adds per-agent identity, encrypted connector credentials, least-privilege bindings,
@@ -122,7 +122,7 @@ export default function Home() {
         <Metric label="Agents" value={String(health.total)} />
         <Metric label="Planner" value="DAG + validator" />
         <Metric label="Connectors" value={String(connectorHealth.total)} />
-        <Metric label="Circuit" value={connectorHealth.open ? `${connectorHealth.open} open` : "closed"} />
+        <Metric label="Circuit" value={connectorHealth.open ? `${connectorHealth.open} open` : "closed"} /><Metric label="Network" value={String(networkAgents.length)} />
       </div>
     </section>
 
@@ -171,7 +171,7 @@ export default function Home() {
       </div>
     </section>
 
-    <ConnectorPanel connectors={connectors} />
+    <ConnectorPanel connectors={connectors} />\n    <NetworkPanel agents={networkAgents} />
   </main>;
 }
 
@@ -261,6 +261,6 @@ function ConnectorPanel({ connectors }: { connectors: Connector[] }) {
   </section>;
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function NetworkPanel({ agents }: { agents: any[] }) {\n  return <section className="card infrastructure"><div className="sectionTitle">Agent network</div>\n    {agents.length===0 ? <div className="empty">No published or shared network agents are available yet.</div> : agents.map((item)=> <div className="agentRow" key={item.listing.id}><div className="agentDot" /><div><b>{item.listing.title}</b><div className="muted small">{item.organizationName} · {item.listing.capabilities.slice(0,5).join(" · ")}</div></div><div className="agentRight"><span>{item.access}</span><span>trust {item.reputation?.trustScore ?? 50}</span></div></div>)}\n    <div className="muted small">Discovery is metadata-only. Delegation requires an explicit provider share or provider acceptance, with negotiated capabilities and a bounded budget.</div>\n  </section>;\n}\n\nfunction Metric({ label, value }: { label: string; value: string }) {
   return <div className="metric"><div className="muted small">{label}</div><b>{value}</b></div>;
 }
