@@ -1,6 +1,6 @@
 # Agent Orchestrator V4
 
-A provider-neutral AI control plane for planning, executing, verifying and recovering multi-agent workflows.
+A provider-neutral AI control plane for planning, executing, verifying, protecting and recovering multi-agent workflows.
 
 ## What V4 adds
 
@@ -28,7 +28,7 @@ A provider-neutral AI control plane for planning, executing, verifying and recov
 ```text
 User intent
   -> authenticated API
-  -> V3 planner
+  -> V4 planner
   -> validated DAG
   -> durable task + plan revision
   -> leased worker
@@ -45,7 +45,7 @@ High/critical tool      -> approval gate -> resume/reject
 
 ## Planner behavior
 
-When `AI_MODEL_PROVIDER=mock`, V3 uses a deterministic fallback that intentionally contains two independent research branches so the execution engine can be validated without a model credential. When `AI_MODEL_PROVIDER=openai`, the server-side Responses adapter supplies the planning request; the returned plan must pass schema, agent-availability, dependency, cycle and verification-coverage checks before it can be stored.
+When `AI_MODEL_PROVIDER=mock`, V4 uses a deterministic fallback that intentionally contains two independent research branches so the execution engine can be validated without a model credential. When `AI_MODEL_PROVIDER=openai`, the server-side Responses adapter supplies the planning request; the returned plan must pass schema, agent-availability, dependency, cycle and verification-coverage checks before it can be stored.
 
 A planner is never trusted merely because it returned JSON. The plan validator is the authority for graph shape and safety constraints.
 
@@ -63,12 +63,12 @@ Verification is not a non-empty-string check. Verification agents are required t
 
 Browser clients use the Supabase publishable key. Server routes and workers use the server-only Supabase secret key. Tenant tables remain RLS-protected and browser access is read-only. Tool use requires an agent-declared tool plus an explicit permission. High/critical-risk tools stop for human approval. Provider credentials never enter the browser bundle.
 
-`external.action` remains a deliberately non-executing high-risk placeholder until connector identity, secret scoping, provenance and rollback semantics are built in a later infrastructure layer.
+`external.action` remains a high-risk, approval-gated preparation path. V4 resolves a scoped connector, signs an expiring request and records provenance, but does not silently perform arbitrary external side effects.
 
 ## Run locally
 
 1. Create a dedicated Supabase project for this application.
-2. Apply `supabase/migrations/20261003_agent_orchestrator_v2.sql` followed by `supabase/migrations/20261003_agent_orchestrator_v3.sql` followed by `20261003_agent_orchestrator_v4.sql`.
+2. Apply `supabase/migrations/20261003_agent_orchestrator_v2.sql`, then `supabase/migrations/20261003_agent_orchestrator_v3.sql`, then `supabase/migrations/20261003_agent_orchestrator_v4.sql`.
 3. Copy `.env.example` to `.env.local` and fill the server/browser Supabase variables plus worker secret.
 4. Use Node.js 22+.
 5. Run `npm install`.
