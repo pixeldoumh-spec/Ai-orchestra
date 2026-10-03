@@ -27,7 +27,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (error || !approval) return NextResponse.json({ error: "Approval not found" }, { status: 404 });
     if (approval.status !== "pending") return NextResponse.json({ error: `Approval is already ${approval.status}` }, { status: 409 });
     if (approval.expires_at && new Date(approval.expires_at).getTime() <= Date.now()) {
-      await admin.from("approvals").update({ status: "expired", resolved_by: user.id, resolved_at: new Date().toISOString() }).eq("id", approvalId);
+      const expiredAt = new Date().toISOString();
+      await admin.from("approvals").update({ status: "expired", resolved_by: user.id, resolved_at: expiredAt }).eq("id", approvalId);
+      if (approval.connector_request_id) {
+        const { error: expiryError } = await admin.from("connector_requests").update({ status: "expired", completed_at: expiredAt }).eq("id", approval.connector_request_id).in("status", ["prepared", "approved"]);
+        if (expiryError) throw new Error(expiryError.message);
+      }
       return NextResponse.json({ error: "Approval expired" }, { status: 409 });
     }
 
