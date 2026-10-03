@@ -1,0 +1,8 @@
+node_modules
+.next
+.env*
+!.env.example
+.tmp-core
+.tmp-tests
+*.log
+.DS_Store
