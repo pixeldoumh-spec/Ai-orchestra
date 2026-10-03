@@ -48,22 +48,33 @@ export async function storeConnectorCredential(input:{organizationId:string;conn
 }
 export async function listConnectorCredentials(orgId:string,connectorId:string){const db=createAdminClient();const{data,error}=await db.from("connector_credentials").select("id,connector_id,organization_id,name,scopes,auth_scheme,status,key_version,expires_at,created_at,rotated_at").eq("organization_id",orgId).eq("connector_id",connectorId).order("created_at",{ascending:false});if(error)throw new Error(error.message);return data??[];}
 export async function resolveConnectorRoute(input:{organizationId:string;agentId:string;toolId:string}) {
-  const db=createAdminClient();const{data,error}=await db.from("agent_connector_bindings").select("*").eq("organization_id",input.organizationId).eq("agent_id",input.agentId).eq("status","active").order("priority",{ascending:true});if(error)throw new Error(error.message);
-  const bindings=(data??[]).map(mapBinding).filter((b)=>b.allowedTools.includes(input.toolId));if(bindings.length===0)return null;
-  for(const binding of bindings){const visited=new Set<string>();let connectorId:string|null=binding.connectorId;
-    for(let depth=0;connectorId&&depth<5;depth++){if(visited.has(connectorId))break;visited.add(connectorId);
-      const{data:row,error:re}=await db.from("connectors").select("*").eq("organization_id",input.organizationId).eq("id",connectorId).maybeSingle();if(re)throw new Error(re.message);if(!row)break;
-      const connector=mapConnector(row);if(connector.status!=="disabled"&&effectiveCircuitState(connector)!=="open"){
-        if(connector.authScheme!=="none"&&!binding.credentialId)throw new Error(`Connector ${connector.name} requires a scoped credential`);
-        if(binding.credentialId){const{data:cred,error:qe}=await db.from("connector_credentials").select("id,status,expires_at,scopes,auth_scheme").eq("organization_id",input.organizationId).eq("connector_id",connectorId).eq("id",binding.credentialId).maybeSingle();if(qe)throw new Error(qe.message);
-          if(!cred||cred.status!=="active"||(cred.expires_at&&Date.parse(cred.expires_at)<=Date.now()))throw new Error("Bound connector credential is not active");
-          if(cred.auth_scheme!==connector.authScheme)throw new Error("Credential auth scheme mismatch");
-          const scopes=Array.isArray(cred.scopes)?cred.scopes:[];if(scopes.length&&!scopes.includes(input.toolId))throw new Error(`Credential is not scoped for ${input.toolId}`);
+  const db=createAdminClient();
+  const {data,error}=await db.from("agent_connector_bindings").select("*").eq("organization_id",input.organizationId).eq("agent_id",input.agentId).eq("status","active").order("priority",{ascending:true});
+  if(error)throw new Error(error.message);
+  const bindings=(data??[]).map(mapBinding).filter((b)=>b.allowedTools.includes(input.toolId));
+  if(bindings.length===0)return null;
+  for(const primary of bindings){
+    const visited=new Set<string>();let connectorId:string|null=primary.connectorId;
+    for(let depth=0;connectorId&&depth<5;depth++){
+      if(visited.has(connectorId))break;visited.add(connectorId);
+      const{data:row,error:re}=await db.from("connectors").select("*").eq("organization_id",input.organizationId).eq("id",connectorId).maybeSingle();
+      if(re)throw new Error(re.message);if(!row)break;
+      const connector=mapConnector(row);
+      if(connector.status!=="disabled"&&effectiveCircuitState(connector)!=="open"){
+        const binding=bindings.find((candidate)=>candidate.connectorId===connectorId)??primary;
+        if(connector.authScheme!=="none"&&!binding.credentialId){connectorId=connector.fallbackConnectorId;continue;}
+        if(binding.credentialId){
+          const{data:cred,error:qe}=await db.from("connector_credentials").select("id,status,expires_at,scopes,auth_scheme").eq("organization_id",input.organizationId).eq("connector_id",connectorId).eq("id",binding.credentialId).maybeSingle();
+          if(qe)throw new Error(qe.message);
+          if(!cred||cred.status!=="active"||(cred.expires_at&&Date.parse(cred.expires_at)<=Date.now())||cred.auth_scheme!==connector.authScheme){connectorId=connector.fallbackConnectorId;continue;}
+          const scopes=Array.isArray(cred.scopes)?cred.scopes:[];if(scopes.length&&!scopes.includes(input.toolId)){connectorId=connector.fallbackConnectorId;continue;}
         }
         return{connector,binding,fallbackDepth:depth};
-      } connectorId=connector.fallbackConnectorId;
+      }
+      connectorId=connector.fallbackConnectorId;
     }
-  } return null;
+  }
+  return null;
 }
 export async function prepareConnectorRequest(input:{organizationId:string;taskId:string;stepId:string;agent:AgentDefinition;toolInvocation:ToolInvocation}) {
   const route=await resolveConnectorRoute({organizationId:input.organizationId,agentId:input.agent.id,toolId:input.toolInvocation.toolId});if(!route)throw new Error("No healthy connector route is available for this agent/tool");
