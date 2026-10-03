@@ -1,16 +1,121 @@
 create extension if not exists pgcrypto;
-create table if not exists public.organizations (id uuid primary key default gen_random_uuid(), name text not null check (char_length(name) between 2 and 120), created_by uuid not null references auth.users(id) on delete cascade, created_at timestamptz not null default now());
-create table if not exists public.organization_members (organization_id uuid not null references public.organizations(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade, role text not null check (role in ('owner','admin','member')), created_at timestamptz not null default now(), primary key (organization_id,user_id));
-create table if not exists public.agents (id text not null, organization_id uuid not null references public.organizations(id) on delete cascade, name text not null, description text not null, capabilities jsonb not null default '[]'::jsonb, permissions jsonb not null default '[]'::jsonb, tools jsonb not null default '[]'::jsonb, budget_cents integer not null default 0 check (budget_cents >= 0), status text not null default 'healthy' check (status in ('healthy','degraded','offline')), version text not null, model text, created_at timestamptz not null default now(), updated_at timestamptz not null default now(), primary key (organization_id,id));
-create table if not exists public.tasks (id text primary key, organization_id uuid not null references public.organizations(id) on delete cascade, created_by uuid not null references auth.users(id) on delete restrict, goal text not null check (char_length(goal) between 5 and 2000), status text not null check (status in ('queued','running','awaiting_approval','verified','failed','cancelled')), idempotency_key text not null check (char_length(idempotency_key) between 8 and 64), max_cost_cents integer not null default 500 check (max_cost_cents >= 0), spent_cost_cents integer not null default 0 check (spent_cost_cents >= 0), plan_version text not null, final_result jsonb, error text, started_at timestamptz, completed_at timestamptz, lease_owner text, lease_until timestamptz, run_after timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique (organization_id,idempotency_key));
-create table if not exists public.task_steps (id text primary key, task_id text not null references public.tasks(id) on delete cascade, agent_id text not null, objective text not null, status text not null check (status in ('queued','running','awaiting_approval','verified','failed','cancelled')), depends_on text[] not null default '{}', max_attempts integer not null default 3 check (max_attempts between 1 and 10), attempt_count integer not null default 0 check (attempt_count >= 0), result jsonb, checkpoint jsonb, error text, usage_cents integer not null default 0 check (usage_cents >= 0), started_at timestamptz, finished_at timestamptz, run_after timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
-create table if not exists public.task_events (id bigint generated always as identity primary key, task_id text not null references public.tasks(id) on delete cascade, organization_id uuid not null references public.organizations(id) on delete cascade, event_type text not null, actor_type text not null default 'system', actor_id text, payload jsonb not null default '{}'::jsonb, created_at timestamptz not null default now());
-create table if not exists public.task_artifacts (id uuid primary key default gen_random_uuid(), task_id text not null references public.tasks(id) on delete cascade, name text not null check (char_length(name) between 1 and 200), content jsonb, created_at timestamptz not null default now());
-create table if not exists public.approvals (id uuid primary key default gen_random_uuid(), task_id text not null references public.tasks(id) on delete cascade, organization_id uuid not null references public.organizations(id) on delete cascade, step_id text not null references public.task_steps(id) on delete cascade, requested_by_agent_id text not null, action_type text not null, reason text not null, status text not null check (status in ('pending','approved','rejected','expired')) default 'pending', resolved_by uuid references auth.users(id) on delete set null, resolved_at timestamptz, created_at timestamptz not null default now(), expires_at timestamptz);
-create index if not exists tasks_queue_idx on public.tasks(status,run_after,lease_until,created_at);
-create index if not exists task_steps_ready_idx on public.task_steps(task_id,status,run_after);
-create index if not exists events_task_idx on public.task_events(task_id,created_at);
-create index if not exists approvals_task_idx on public.approvals(task_id,status,created_at);
+
+create table if not exists public.organizations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (char_length(name) between 2 and 120),
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.organization_members (
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('owner','admin','member')),
+  created_at timestamptz not null default now(),
+  primary key (organization_id, user_id)
+);
+
+create table if not exists public.agents (
+  id text not null,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  name text not null,
+  description text not null,
+  capabilities jsonb not null default '[]'::jsonb,
+  permissions jsonb not null default '[]'::jsonb,
+  tools jsonb not null default '[]'::jsonb,
+  budget_cents integer not null default 0 check (budget_cents >= 0),
+  status text not null default 'healthy' check (status in ('healthy','degraded','offline')),
+  version text not null,
+  model text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (organization_id, id)
+);
+
+create table if not exists public.tasks (
+  id text primary key,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  created_by uuid not null references auth.users(id) on delete restrict,
+  goal text not null check (char_length(goal) between 5 and 2000),
+  status text not null check (status in ('queued','running','awaiting_approval','verified','failed','cancelled')),
+  idempotency_key text not null check (char_length(idempotency_key) between 8 and 64),
+  max_cost_cents integer not null default 500 check (max_cost_cents >= 0),
+  spent_cost_cents integer not null default 0 check (spent_cost_cents >= 0),
+  plan_version text not null,
+  final_result jsonb,
+  error text,
+  started_at timestamptz,
+  completed_at timestamptz,
+  lease_owner text,
+  lease_until timestamptz,
+  run_after timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (organization_id, id),
+  unique (organization_id, idempotency_key)
+);
+
+create table if not exists public.task_steps (
+  id text primary key,
+  task_id text not null references public.tasks(id) on delete cascade,
+  agent_id text not null,
+  objective text not null,
+  status text not null check (status in ('queued','running','awaiting_approval','verified','failed','cancelled')),
+  depends_on text[] not null default '{}',
+  max_attempts integer not null default 3 check (max_attempts between 1 and 10),
+  attempt_count integer not null default 0 check (attempt_count >= 0),
+  result jsonb,
+  checkpoint jsonb,
+  error text,
+  usage_cents integer not null default 0 check (usage_cents >= 0),
+  started_at timestamptz,
+  finished_at timestamptz,
+  run_after timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.task_events (
+  id bigint generated always as identity primary key,
+  task_id text not null,
+  organization_id uuid not null,
+  event_type text not null,
+  actor_type text not null default 'system',
+  actor_id text,
+  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  constraint task_events_task_org_fk foreign key (task_id, organization_id) references public.tasks(id, organization_id) on delete cascade
+);
+
+create table if not exists public.task_artifacts (
+  id uuid primary key default gen_random_uuid(),
+  task_id text not null references public.tasks(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 200),
+  content jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.approvals (
+  id uuid primary key default gen_random_uuid(),
+  task_id text not null,
+  organization_id uuid not null,
+  step_id text not null references public.task_steps(id) on delete cascade,
+  requested_by_agent_id text not null,
+  action_type text not null,
+  reason text not null,
+  status text not null default 'pending' check (status in ('pending','approved','rejected','expired')),
+  resolved_by uuid references auth.users(id) on delete set null,
+  resolved_at timestamptz,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz,
+  constraint approvals_task_org_fk foreign key (task_id, organization_id) references public.tasks(id, organization_id) on delete cascade
+);
+
+create index if not exists tasks_queue_idx on public.tasks(status, run_after, lease_until, created_at);
+create index if not exists task_steps_ready_idx on public.task_steps(task_id, status, run_after);
+create index if not exists events_task_idx on public.task_events(task_id, created_at);
+create index if not exists approvals_task_idx on public.approvals(task_id, status, created_at);
+
 alter table public.organizations enable row level security;
 alter table public.organization_members enable row level security;
 alter table public.agents enable row level security;
@@ -19,13 +124,42 @@ alter table public.task_steps enable row level security;
 alter table public.task_events enable row level security;
 alter table public.task_artifacts enable row level security;
 alter table public.approvals enable row level security;
-create policy "org members can read their organizations" on public.organizations for select to authenticated using (created_by=(select auth.uid()) or exists(select 1 from public.organization_members m where m.organization_id=organizations.id and m.user_id=(select auth.uid())));
-create policy "members can read their membership" on public.organization_members for select to authenticated using (user_id=(select auth.uid()));
-create policy "org members can read agents" on public.agents for select to authenticated using (exists(select 1 from public.organization_members m where m.organization_id=agents.organization_id and m.user_id=(select auth.uid())));
-create policy "org members can read tasks" on public.tasks for select to authenticated using (exists(select 1 from public.organization_members m where m.organization_id=tasks.organization_id and m.user_id=(select auth.uid())));
-create policy "org members can read task steps" on public.task_steps for select to authenticated using (exists(select 1 from public.tasks t join public.organization_members m on m.organization_id=t.organization_id where t.id=task_steps.task_id and m.user_id=(select auth.uid())));
-create policy "org members can read task events" on public.task_events for select to authenticated using (exists(select 1 from public.organization_members m where m.organization_id=task_events.organization_id and m.user_id=(select auth.uid())));
-create policy "org members can read artifacts" on public.task_artifacts for select to authenticated using (exists(select 1 from public.tasks t join public.organization_members m on m.organization_id=t.organization_id where t.id=task_artifacts.task_id and m.user_id=(select auth.uid())));
-create policy "org members can read approvals" on public.approvals for select to authenticated using (exists(select 1 from public.organization_members m where m.organization_id=approvals.organization_id and m.user_id=(select auth.uid())));
-revoke all on public.organizations,public.organization_members,public.agents,public.tasks,public.task_steps,public.task_events,public.task_artifacts,public.approvals from anon,authenticated;
-grant select on public.organizations,public.organization_members,public.agents,public.tasks,public.task_steps,public.task_events,public.task_artifacts,public.approvals to authenticated;
+
+drop policy if exists "org members can read their organizations" on public.organizations;
+create policy "org members can read their organizations" on public.organizations for select to authenticated
+using ((created_by = (select auth.uid())) or exists (select 1 from public.organization_members m where m.organization_id = organizations.id and m.user_id = (select auth.uid())));
+
+drop policy if exists "members can read their membership" on public.organization_members;
+create policy "members can read their membership" on public.organization_members for select to authenticated
+using (user_id = (select auth.uid()));
+
+drop policy if exists "org members can read agents" on public.agents;
+create policy "org members can read agents" on public.agents for select to authenticated
+using (exists (select 1 from public.organization_members m where m.organization_id = agents.organization_id and m.user_id = (select auth.uid())));
+
+drop policy if exists "org members can read tasks" on public.tasks;
+create policy "org members can read tasks" on public.tasks for select to authenticated
+using (exists (select 1 from public.organization_members m where m.organization_id = tasks.organization_id and m.user_id = (select auth.uid())));
+
+drop policy if exists "org members can read task steps" on public.task_steps;
+create policy "org members can read task steps" on public.task_steps for select to authenticated
+using (exists (select 1 from public.tasks t join public.organization_members m on m.organization_id = t.organization_id where t.id = task_steps.task_id and m.user_id = (select auth.uid())));
+
+drop policy if exists "org members can read task events" on public.task_events;
+create policy "org members can read task events" on public.task_events for select to authenticated
+using (exists (select 1 from public.organization_members m where m.organization_id = task_events.organization_id and m.user_id = (select auth.uid())));
+
+drop policy if exists "org members can read artifacts" on public.task_artifacts;
+create policy "org members can read artifacts" on public.task_artifacts for select to authenticated
+using (exists (select 1 from public.tasks t join public.organization_members m on m.organization_id = t.organization_id where t.id = task_artifacts.task_id and m.user_id = (select auth.uid())));
+
+drop policy if exists "org members can read approvals" on public.approvals;
+create policy "org members can read approvals" on public.approvals for select to authenticated
+using (exists (select 1 from public.organization_members m where m.organization_id = approvals.organization_id and m.user_id = (select auth.uid())));
+
+comment on table public.tasks is 'Durable orchestration task state. Workers mutate this state server-side with a secret key.';
+comment on table public.task_events is 'Append-only execution trail for observability and audit.';
+comment on table public.approvals is 'Human approval gates for high/critical-risk actions.';
+
+revoke all on table public.organizations, public.organization_members, public.agents, public.tasks, public.task_steps, public.task_events, public.task_artifacts, public.approvals from anon, authenticated;
+grant select on table public.organizations, public.organization_members, public.agents, public.tasks, public.task_steps, public.task_events, public.task_artifacts, public.approvals to authenticated;
