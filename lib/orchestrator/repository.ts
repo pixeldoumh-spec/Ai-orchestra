@@ -77,8 +77,9 @@ export async function getTask(taskId: string, organizationId: string) {
   const { data: events, error: eventError } = await db.from("task_events").select("*").eq("task_id", taskId).order("created_at", { ascending: true }).limit(400);
   if (eventError) throw new Error(eventError.message);
   const { data: artifacts } = await db.from("task_artifacts").select("id, name, content, created_at").eq("task_id", taskId).order("created_at", { ascending: true });
-  const { data: approvals } = await db.from("approvals").select("id, step_id, status, action_type, reason, resolved_by, resolved_at, created_at, expires_at").eq("task_id", taskId).order("created_at", { ascending: true });
-  return { ...task, steps: steps ?? [], events: events ?? [], artifacts: artifacts ?? [], approvals: approvals ?? [] };
+  const { data: approvals } = await db.from("approvals").select("id, step_id, status, action_type, reason, resolved_by, resolved_at, created_at, expires_at, connector_request_id").eq("task_id", taskId).order("created_at", { ascending: true });
+  const { data: toolInvocations } = await db.from("tool_invocations").select("id, step_id, agent_id, tool_id, status, connector_request_id, policy_decision, created_at, completed_at").eq("task_id", taskId).order("created_at", { ascending: true }).limit(200);
+  return { ...task, steps: steps ?? [], events: events ?? [], artifacts: artifacts ?? [], approvals: approvals ?? [], toolInvocations: toolInvocations ?? [] };
 }
 
 export async function appendEvent(taskId: string, organizationId: string, eventType: string, payload: unknown, actorId?: string) {
