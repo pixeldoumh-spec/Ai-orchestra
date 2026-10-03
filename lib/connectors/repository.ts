@@ -44,7 +44,17 @@ export async function storeConnectorCredential(input:{organizationId:string;conn
   if(connector.auth_scheme!==input.authScheme)throw new Error("Credential auth scheme must match connector auth scheme");
   const encrypted=encryptSecret(input.secret);
   const{data,error}=await db.from("connector_credentials").insert({organization_id:input.organizationId,connector_id:input.connectorId,name:input.name,scopes:input.scopes,auth_scheme:input.authScheme,status:"active",secret_ciphertext:encrypted.ciphertext,secret_iv:encrypted.iv,secret_auth_tag:encrypted.authTag,key_version:encrypted.keyVersion,expires_at:input.expiresAt??null}).select("id,connector_id,organization_id,name,scopes,auth_scheme,status,key_version,expires_at").single();
-  if(error)throw new Error(error.message);return data as ConnectorCredentialMetadata;
+  if(error)throw new Error(error.message);return {
+    id: data.id,
+    connectorId: data.connector_id,
+    organizationId: data.organization_id,
+    name: data.name,
+    scopes: Array.isArray(data.scopes) ? data.scopes : [],
+    authScheme: data.auth_scheme,
+    status: data.status,
+    keyVersion: Number(data.key_version),
+    expiresAt: data.expires_at ?? null,
+  } as ConnectorCredentialMetadata;
 }
 export async function listConnectorCredentials(orgId:string,connectorId:string){const db=createAdminClient();const{data,error}=await db.from("connector_credentials").select("id,connector_id,organization_id,name,scopes,auth_scheme,status,key_version,expires_at,created_at,rotated_at").eq("organization_id",orgId).eq("connector_id",connectorId).order("created_at",{ascending:false});if(error)throw new Error(error.message);return data??[];}
 export async function resolveConnectorRoute(input:{organizationId:string;agentId:string;toolId:string}) {
@@ -60,7 +70,7 @@ export async function resolveConnectorRoute(input:{organizationId:string;agentId
       const{data:row,error:re}=await db.from("connectors").select("*").eq("organization_id",input.organizationId).eq("id",connectorId).maybeSingle();
       if(re)throw new Error(re.message);if(!row)break;
       const connector=mapConnector(row);
-      if(connector.status!=="disabled"&&effectiveCircuitState(connector)!=="open"){
+      if(connector.status!=="disabled"&&effectiveCircuitState({ state: connector.circuitState, consecutiveFailures: connector.consecutiveFailures, cooldownUntil: connector.cooldownUntil })!=="open"){
         const binding=bindings.find((candidate)=>candidate.connectorId===connectorId)??primary;
         if(connector.authScheme!=="none"&&!binding.credentialId){connectorId=connector.fallbackConnectorId;continue;}
         if(binding.credentialId){
