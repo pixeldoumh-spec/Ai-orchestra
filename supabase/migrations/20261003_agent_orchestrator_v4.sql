@@ -13,7 +13,7 @@ constraint connectors_fallback_fk foreign key (organization_id, fallback_connect
 create table if not exists public.agent_identities(
  id uuid primary key default gen_random_uuid(),organization_id uuid not null,agent_id text not null,public_key text not null,private_key_ciphertext text not null,private_key_iv text not null,private_key_auth_tag text not null,
  key_version integer not null check(key_version>=1),identity_fingerprint text not null check(char_length(identity_fingerprint)=64),status text not null default 'active' check(status in('active','revoked')),
- last_rotated_at timestamptz not null default now(),created_at timestamptz not null default now(),updated_at timestamptz not null default now(),primary key(organization_id,agent_id),
+ last_rotated_at timestamptz not null default now(),created_at timestamptz not null default now(),updated_at timestamptz not null default now(),unique(organization_id,agent_id),
  constraint agent_identities_agent_fk foreign key(organization_id,agent_id) references public.agents(organization_id,id) on delete cascade
 );
 create table if not exists public.connector_credentials(
