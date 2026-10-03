@@ -72,6 +72,7 @@ export async function resolveConnectorRoute(input:{organizationId:string;agentId
       const connector=mapConnector(row);
       if(connector.status!=="disabled"&&effectiveCircuitState({ state: connector.circuitState, consecutiveFailures: connector.consecutiveFailures, cooldownUntil: connector.cooldownUntil })!=="open"){
         const binding=bindings.find((candidate)=>candidate.connectorId===connectorId)??primary;
+        if(binding.scopes.length>0&&!binding.scopes.includes(input.toolId)){connectorId=connector.fallbackConnectorId;continue;}
         if(connector.authScheme!=="none"&&!binding.credentialId){connectorId=connector.fallbackConnectorId;continue;}
         if(binding.credentialId){
           const{data:cred,error:qe}=await db.from("connector_credentials").select("id,status,expires_at,scopes,auth_scheme").eq("organization_id",input.organizationId).eq("connector_id",connectorId).eq("id",binding.credentialId).maybeSingle();
