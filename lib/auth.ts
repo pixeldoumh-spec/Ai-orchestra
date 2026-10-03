@@ -15,7 +15,14 @@ export async function getOrganizationForUser(db: Db, userId: string, requestedId
   if (requestedId) query = query.eq("organization_id", requestedId);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  const first = data?.[0] as { organization_id: string; role: string; organizations?: { id: string; name: string } | null } | undefined;
-  if (!first?.organizations) return null;
-  return { id: first.organization_id, name: first.organizations.name, role: first.role };
+
+  const first = data?.[0] as {
+    organization_id: string;
+    role: string;
+    organizations?: Array<{ id: string; name: string }> | null;
+  } | undefined;
+
+  const organization = first?.organizations?.[0];
+  if (!first || !organization) return null;
+  return { id: first.organization_id, name: organization.name, role: first.role };
 }
