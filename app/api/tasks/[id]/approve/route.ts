@@ -19,7 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const admin = createAdminClient();
     const { data: approval, error } = await admin
       .from("approvals")
-      .select("id, task_id, organization_id, step_id, status, expires_at")
+      .select("id, task_id, organization_id, step_id, status, expires_at, connector_request_id")
       .eq("id", approvalId)
       .eq("task_id", id)
       .eq("organization_id", org.id)
