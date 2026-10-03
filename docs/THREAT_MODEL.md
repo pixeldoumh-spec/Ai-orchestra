@@ -1,36 +1,48 @@
-# Threat Model V2
+# Threat Model V3
 
 ## Assets
-- Task goals and outputs
-- Organization membership
-- Agent permissions
+- Task goals, intermediate outputs and final verified results
+- Organization membership and tenant boundaries
+- Agent permissions and tool allow-lists
 - Model/provider credentials
-- Tool connector credentials
-- Audit events
+- Approval decisions
+- Immutable task events and plan-revision history
 
-## Key threats
+## Threats and mitigations
+
+### Malicious or malformed LLM plan
+Mitigation: bounded Zod schema, agent allow-list, acyclic dependency validator, terminal verification coverage and a 16-step maximum before persistence.
 
 ### Cross-tenant data access
-Mitigation: RLS on all public tenant tables, organization membership predicates, and organization-scoped service operations.
+Mitigation: organization membership checks at the application boundary, organization-scoped queries and RLS on all exposed orchestration tables.
 
 ### Secret exfiltration
-Mitigation: server-only Supabase secret key and provider keys, no `NEXT_PUBLIC_` secret names, and no arbitrary tool execution in V2.
+Mitigation: provider and Supabase secret credentials are server-only; no arbitrary tool execution; connector credentials are not part of the V3 browser contract.
 
-### Replay / duplicate execution
-Mitigation: idempotency keys for task creation, task leases, checkpoints, and explicit state transitions.
+### Duplicate task submission
+Mitigation: organization-scoped idempotency key and durable task row.
 
-### Tool abuse
-Mitigation: tool registry, explicit agent tool allow-list, permission checks, risk classification, and approval gating.
+### Worker race / duplicate execution
+Mitigation: conditional task claim with lease ownership and expiry. A task has one live lease, while its ready frontier may execute in parallel inside that worker.
 
-### Prompt injection from tool data
-Mitigation: treat tool outputs as untrusted data, never as policy instructions. A future signed connector layer should include provenance metadata and content isolation.
+### Cost amplification
+Mitigation: per-agent budgets, task budget ceiling, budget-aware frontier selection and cumulative attempt accounting.
 
-### Worker race
-Mitigation: conditional task claim and lease expiry. Multiple workers may inspect the same queue, but only one should acquire a live lease.
+### Retry storm
+Mitigation: bounded exponential backoff, task-level wake-up propagation and `TASK_MAX_STEPS` / `TASK_MAX_REPLANS` caps.
 
-### Stale authorization
-Mitigation: do not use editable `user_metadata` for roles. Memberships are server-side database records protected by RLS.
+### Verification bypass
+Mitigation: finalization requires a passing verification step from the current plan revision; raw model text cannot set the task to verified.
 
-## Explicit non-goals
+### Approval confusion / wrong approval
+Mitigation: V3 approval resolution requires the exact approval identifier and checks task + organization ownership. Expired pending approvals are rejected.
 
-V2 does not attempt to make arbitrary external actions autonomous. The external action surface remains high-risk and approval-gated. This is deliberate until connector identity, secret scoping, provenance, and rollback semantics are designed.
+### Audit tampering
+Mitigation: `task_events` is append-only at the database trigger layer.
+
+### Prompt injection from retrieved/tool data
+Mitigation: tool outputs are treated as untrusted data and cannot modify planner policy. A future connector layer should add provenance and content isolation.
+
+## Remaining V4 boundary
+
+V3 still uses a server-side model adapter and a small builtin tool registry. Signed connectors, per-connector secret scopes, provider circuit breakers, richer organization policy and external action rollback are intentionally deferred.

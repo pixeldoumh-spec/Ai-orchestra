@@ -1,37 +1,37 @@
-# V2 Architecture Notes
+# V3 Architecture Notes
 
-## Design decisions
+## 1. Planner is untrusted input, validator is authority
 
-### 1. Database is the source of truth
-The workflow state machine lives in Postgres. The worker is disposable. A worker crash should not erase the task.
+The V3 planner can be an LLM. Its output is not trusted. A plan is accepted only after schema validation, agent allow-list validation, dependency validation, cycle detection and terminal verification coverage checks.
 
-### 2. Queue semantics without pretending Postgres is a queue vendor
-Tasks are persisted with `status`, `run_after`, `lease_owner`, and `lease_until`. Workers claim work with a conditional update and can safely retry after an expired lease. A dedicated queue can be introduced later without changing the task contract.
+## 2. The ready frontier is the unit of parallelism
 
-### 3. RLS is tenant isolation; service role is worker infrastructure
-Browser requests use the publishable Supabase key and SSR auth. Worker processes use the server-side Supabase secret key only on the server. Authorization decisions must still be explicit at the application boundary.
+The worker repeatedly computes steps whose dependencies are verified and whose retry delay has elapsed. That frontier is executed with `Promise.all`. The batch is reduced when configured agent budgets would exceed the task's remaining ceiling. This gives real concurrency without allowing a single ready frontier to bypass cost controls.
 
-### 4. Agents are not tools
-An agent is a reasoning identity. A tool is an executable capability. The gateway mediates the latter.
+## 3. Database remains the source of truth
 
-### 5. Verification is a state transition
-A task only becomes `verified` after the verifier step succeeds. A model output that says “done” is not considered proof by itself.
+Task state, plan revisions, steps, spend, events and approvals live in Postgres. A worker can disappear and another worker can recover the task after its lease expires.
 
-### 6. Approval is part of the workflow graph
-A risky action pauses at `awaiting_approval`; approval resolution puts the step back into `queued` or permanently fails it.
+## 4. Replanning preserves history
 
-### 7. Model providers are adapters
-The orchestration engine depends on `ModelAdapter`, not OpenAI. Current V2 ships a mock adapter and an OpenAI Responses adapter. This keeps provider lock-in out of task semantics.
+When a step exhausts its retries, V3 can ask the planner for a replacement DAG. New steps receive a new `plan_revision`; queued steps from the old revision are cancelled rather than overwritten. This retains the failure trail while allowing a different decomposition.
 
-## Future V3 work
+## 5. Verification is structured
 
-- Dynamic LLM planner producing a validated DAG
-- True parallel step execution
-- Signed tool connectors and per-connector secret scopes
-- Prompt/response tracing with redaction
-- Streaming task events over Realtime
-- Token-level budgets and provider routing
-- Model fallback/circuit breakers
-- Organization roles with richer policies
-- Billing and usage ledger
-- Evaluation harness for agent quality
+Verification agents return a machine-readable contract with pass/fail, confidence, findings and evidence. Finalization uses only the current plan revision and only occurs when the verifier passes.
+
+## 6. Tool use is model-directed but policy-controlled
+
+An agent may return bounded tool requests. The gateway still decides whether the request is executable. The agent must declare the tool, possess its permission and satisfy the tool's risk policy. High/critical-risk tools stop for approval.
+
+## 7. Spend is attempt-aware
+
+Each step stores both last-attempt usage and cumulative usage. After each parallel frontier, task spend is recalculated from cumulative step totals. This avoids the V2 race where parallel steps could overwrite one another's spend update.
+
+## 8. Retry scheduling is queue-aware
+
+Step backoff is persisted on `run_after`. The worker also sets the task-level `run_after` to the earliest future ready time when a frontier is temporarily blocked. This prevents a task from remaining indefinitely in `running` with no scheduler wake-up signal.
+
+## 9. Current boundary
+
+V3 intentionally does not claim arbitrary autonomous control of external systems. `external.action` remains a high-risk placeholder until the later connector/security layer adds identity, secret scoping, provenance, circuit breakers and rollback semantics.

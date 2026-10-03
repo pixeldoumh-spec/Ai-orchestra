@@ -8,8 +8,15 @@ function estimateCents(inputTokens: number, outputTokens: number): number {
 
 export class MockModelAdapter implements ModelAdapter {
   async complete(input: { system: string; user: string; model?: string | null }): Promise<ModelResult> {
-    const output = JSON.stringify({ model: input.model ?? "mock", answer: `Completed: ${input.user}`, confidence: 0.92 });
-    return { output, inputTokens: 0, outputTokens: 0, usageCents: 0 };
+    if (input.system.includes("Verifier Agent")) {
+      return { output: JSON.stringify({ passed: true, confidence: 0.95, findings: [], evidence: ["Mock verifier completed a structural verification pass."] }), inputTokens: 0, outputTokens: 0, usageCents: 0 };
+    }
+    return {
+      output: JSON.stringify({ result: `Completed: ${input.user.slice(0, 1000)}`, toolRequests: [] }),
+      inputTokens: 0,
+      outputTokens: 0,
+      usageCents: 0,
+    };
   }
 }
 
@@ -22,10 +29,7 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
 
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
-      headers: {
-        authorization: `Bearer ${key}`,
-        "content-type": "application/json",
-      },
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({
         model,
         input: [
@@ -37,7 +41,6 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
 
     const body = await response.json().catch(() => null);
     if (!response.ok) throw new Error(`Model provider error (${response.status})`);
-
     const inputTokens = Number(body?.usage?.input_tokens ?? 0);
     const outputTokens = Number(body?.usage?.output_tokens ?? 0);
     const text = typeof body?.output_text === "string" ? body.output_text : extractOutputText(body?.output);

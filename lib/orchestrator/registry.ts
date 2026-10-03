@@ -5,7 +5,19 @@ export async function listAgents(organizationId: string): Promise<AgentDefinitio
   const db = createAdminClient();
   const { data, error } = await db.from("agents").select("*").eq("organization_id", organizationId).order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data ?? []) as AgentDefinition[];
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.name,
+    description: row.description,
+    capabilities: Array.isArray(row.capabilities) ? row.capabilities : [],
+    permissions: Array.isArray(row.permissions) ? row.permissions : [],
+    tools: Array.isArray(row.tools) ? row.tools : [],
+    budgetCents: Number(row.budget_cents ?? 0),
+    status: row.status,
+    version: row.version,
+    model: row.model ?? null,
+  })) as AgentDefinition[];
 }
 
 export async function ensureDefaultAgents(organizationId: string): Promise<void> {
@@ -14,11 +26,11 @@ export async function ensureDefaultAgents(organizationId: string): Promise<void>
   if (error) throw new Error(error.message);
   if ((count ?? 0) > 0) return;
 
-  const agents: Omit<AgentDefinition, "model">[] = [
-    { id: "research", organizationId, name: "Research Agent", description: "Collects and structures inputs.", capabilities: ["research", "summarize"], permissions: ["context.read"], tools: ["time.now"], budgetCents: 100, status: "healthy", version: "2.0.0" },
-    { id: "analysis", organizationId, name: "Analysis Agent", description: "Reasons over structured inputs.", capabilities: ["analysis", "reasoning"], permissions: ["context.read"], tools: [], budgetCents: 150, status: "healthy", version: "2.0.0" },
-    { id: "writer", organizationId, name: "Writer Agent", description: "Creates the user-facing artifact.", capabilities: ["writing", "formatting"], permissions: ["context.read", "artifact.write"], tools: ["artifact.write"], budgetCents: 100, status: "healthy", version: "2.0.0" },
-    { id: "verifier", organizationId, name: "Verifier Agent", description: "Checks completeness, consistency and unsupported claims.", capabilities: ["verification", "quality-control"], permissions: ["context.read", "artifact.read"], tools: [], budgetCents: 75, status: "healthy", version: "2.0.0" },
+  const agents = [
+    { id: "research", organization_id: organizationId, name: "Research Agent", description: "Collects and structures inputs.", capabilities: ["research", "summarize"], permissions: ["context.read", "time.read"], tools: ["time.now"], budget_cents: 100, status: "healthy", version: "3.0.0" },
+    { id: "analysis", organization_id: organizationId, name: "Analysis Agent", description: "Reasons over structured inputs.", capabilities: ["analysis", "reasoning"], permissions: ["context.read"], tools: [], budget_cents: 150, status: "healthy", version: "3.0.0" },
+    { id: "writer", organization_id: organizationId, name: "Writer Agent", description: "Creates the user-facing result and optional artifact.", capabilities: ["writing", "formatting"], permissions: ["context.read", "artifact.write"], tools: ["artifact.write"], budget_cents: 100, status: "healthy", version: "3.0.0" },
+    { id: "verifier", organization_id: organizationId, name: "Verifier Agent", description: "Checks completeness, consistency and unsupported claims.", capabilities: ["verification", "quality-control"], permissions: ["context.read", "artifact.read"], tools: [], budget_cents: 75, status: "healthy", version: "3.0.0" },
   ];
   const { error: insertError } = await db.from("agents").insert(agents);
   if (insertError) throw new Error(insertError.message);

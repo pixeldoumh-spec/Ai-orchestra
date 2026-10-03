@@ -1,13 +1,13 @@
-# V2 API Contract
+# V3 API Contract
 
 ## Authentication
 
-Browser requests use Supabase SSR cookies. Every application route that returns tenant data first resolves the signed-in user and then resolves an organization membership.
+Browser requests use Supabase SSR cookies. Tenant-returning routes authenticate the caller and resolve an organization membership before reading or mutating workflow state.
 
 ## Endpoints
 
 `GET /api/health`
-Returns service health/version without requiring authentication.
+Returns service health/version without authentication.
 
 `POST /api/organizations`
 Creates a workspace for the authenticated user and seeds the default agent registry.
@@ -18,23 +18,23 @@ Returns the caller's organization and registered agents.
 `POST /api/tasks`
 Headers: `Idempotency-Key: <unique-client-key>`
 Body: `{ "goal": string, "organizationId?": string, "maxCostCents?": number }`
-The route persists the task and validated workflow before execution.
+The route builds a V3 plan through the planner, validates it, then persists the task and plan revision before execution.
 
 `GET /api/tasks/<taskId>`
-Returns the task, steps, event trail and artifacts for the caller's organization.
+Returns the task, current and historical plan steps, event trail, artifacts and approvals for the caller's organization.
 
 `POST /api/tasks/<taskId>/start`
-Authenticated development/control-plane kick endpoint. Claims the task and processes available work. Production schedulers should prefer the internal worker.
+Authenticated control-plane kick. Claims the task and processes its current ready frontier. Production scheduling should prefer `/api/internal/worker`.
 
 `POST /api/tasks/<taskId>/approve`
-Body: `{ "decision": "approve" | "reject" }`
-Resolves a pending human approval and requeues or fails the affected step.
+Body: `{ "approvalId": string, "decision": "approve" | "reject" }`
+Resolves exactly the addressed pending approval. Expired approvals are rejected and recorded.
 
 `POST /api/internal/worker`
 Header: `x-worker-secret: <server-only-secret>`
-Trusted scheduler endpoint. Claims and processes eligible queued/expired-lease tasks.
+Trusted scheduler endpoint. Claims and processes eligible tasks.
 
-## State machine
+## Task state machine
 
 ```text
 queued -> running -> verified
@@ -46,12 +46,16 @@ queued -> running -> verified
 queued/running -> cancelled
 ```
 
-A step follows the same pattern. Retries leave the step in `queued` with `run_after` set using bounded exponential backoff. A lease expiry allows recovery by another worker.
+Recovery replanning creates a new plan revision while preserving the historical steps of prior revisions. A retry keeps a step in `queued` and uses `run_after` for bounded exponential backoff; the worker also copies the earliest retry wake-up onto the task's `run_after` field.
 
-## Invariants
+## V3 invariants
 
-1. Browser clients cannot directly mutate orchestration state.
-2. A task cannot become `verified` until the verifier step succeeds.
-3. A high/critical-risk tool cannot execute without approval.
-4. A duplicate `(organization_id, idempotency_key)` returns the original task instead of creating another.
-5. Worker/provider secrets remain server-side.
+1. A plan must be an acyclic DAG with 2–16 steps.
+2. Every referenced agent must be available and non-offline.
+3. Every terminal work step must be covered by a verification step.
+4. Independent ready steps may execute concurrently, subject to the task budget ceiling.
+5. Cumulative step attempt spend is reconciled to task spend after each execution frontier.
+6. A task can only become `verified` after a verified step in the current plan revision passes the verification contract.
+7. High/critical-risk tools require approval; the exact approval ID must be resolved.
+8. Duplicate `(organization_id, idempotency_key)` returns the existing task.
+9. Tenant authorization remains explicit at the application boundary and RLS-protected in Supabase.
