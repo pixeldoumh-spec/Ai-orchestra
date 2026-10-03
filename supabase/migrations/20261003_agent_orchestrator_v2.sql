@@ -1,5 +1,4 @@
 create extension if not exists pgcrypto;
-
 create table if not exists public.organizations (id uuid primary key default gen_random_uuid(), name text not null check (char_length(name) between 2 and 120), created_by uuid not null references auth.users(id) on delete cascade, created_at timestamptz not null default now());
 create table if not exists public.organization_members (organization_id uuid not null references public.organizations(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade, role text not null check (role in ('owner','admin','member')), created_at timestamptz not null default now(), primary key (organization_id,user_id));
 create table if not exists public.agents (id text not null, organization_id uuid not null references public.organizations(id) on delete cascade, name text not null, description text not null, capabilities jsonb not null default '[]'::jsonb, permissions jsonb not null default '[]'::jsonb, tools jsonb not null default '[]'::jsonb, budget_cents integer not null default 0 check (budget_cents >= 0), status text not null default 'healthy' check (status in ('healthy','degraded','offline')), version text not null, model text, created_at timestamptz not null default now(), updated_at timestamptz not null default now(), primary key (organization_id,id));
@@ -12,7 +11,6 @@ create index if not exists tasks_queue_idx on public.tasks(status,run_after,leas
 create index if not exists task_steps_ready_idx on public.task_steps(task_id,status,run_after);
 create index if not exists events_task_idx on public.task_events(task_id,created_at);
 create index if not exists approvals_task_idx on public.approvals(task_id,status,created_at);
-
 alter table public.organizations enable row level security;
 alter table public.organization_members enable row level security;
 alter table public.agents enable row level security;
@@ -21,15 +19,13 @@ alter table public.task_steps enable row level security;
 alter table public.task_events enable row level security;
 alter table public.task_artifacts enable row level security;
 alter table public.approvals enable row level security;
-
 create policy "org members can read their organizations" on public.organizations for select to authenticated using (created_by=(select auth.uid()) or exists(select 1 from public.organization_members m where m.organization_id=organizations.id and m.user_id=(select auth.uid())));
 create policy "members can read their membership" on public.organization_members for select to authenticated using (user_id=(select auth.uid()));
 create policy "org members can read agents" on public.agents for select to authenticated using (exists(select 1 from public.organization_members m where m.organization_id=agents.organization_id and m.user_id=(select auth.uid())));
 create policy "org members can read tasks" on public.tasks for select to authenticated using (exists(select 1 from public.organization_members m where m.organization_id=tasks.organization_id and m.user_id=(select auth.uid())));
 create policy "org members can read task steps" on public.task_steps for select to authenticated using (exists(select 1 from public.tasks t join public.organization_members m on m.organization_id=t.organization_id where t.id=task_steps.task_id and m.user_id=(select auth.uid())));
-create policy "org members can read task events" on public.task_events for select to authenticated using (exists(select 1 from public.organization_members m on m.organization_id=task_events.organization_id and m.user_id=(select auth.uid())));
+create policy "org members can read task events" on public.task_events for select to authenticated using (exists(select 1 from public.organization_members m where m.organization_id=task_events.organization_id and m.user_id=(select auth.uid())));
 create policy "org members can read artifacts" on public.task_artifacts for select to authenticated using (exists(select 1 from public.tasks t join public.organization_members m on m.organization_id=t.organization_id where t.id=task_artifacts.task_id and m.user_id=(select auth.uid())));
 create policy "org members can read approvals" on public.approvals for select to authenticated using (exists(select 1 from public.organization_members m where m.organization_id=approvals.organization_id and m.user_id=(select auth.uid())));
-
 revoke all on public.organizations,public.organization_members,public.agents,public.tasks,public.task_steps,public.task_events,public.task_artifacts,public.approvals from anon,authenticated;
 grant select on public.organizations,public.organization_members,public.agents,public.tasks,public.task_steps,public.task_events,public.task_artifacts,public.approvals to authenticated;
