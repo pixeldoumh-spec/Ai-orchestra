@@ -6,7 +6,9 @@ create table if not exists public.connectors(
  version text not null default '1.0.0',circuit_state text not null default 'closed' check(circuit_state in('closed','open')),consecutive_failures integer not null default 0 check(consecutive_failures>=0),
  failure_threshold integer not null default 3 check(failure_threshold between 1 and 20),cooldown_seconds integer not null default 60 check(cooldown_seconds between 5 and 3600),cooldown_until timestamptz,
  fallback_connector_id uuid references public.connectors(id) on delete set null,last_success_at timestamptz,last_failure_at timestamptz,created_by uuid references auth.users(id) on delete set null,
- created_at timestamptz not null default now(),updated_at timestamptz not null default now(),unique(organization_id,id),check(base_url is null or base_url~'^https://'),check(fallback_connector_id is null or fallback_connector_id<>id)
+ created_at timestamptz not null default now(),updated_at timestamptz not null default now(),unique(organization_id,id),check(base_url is null or base_url~'^https://'),check(fallback_connector_id is null or fallback_connector_id<>id),
+constraint connectors_fallback_fk foreign key (organization_id, fallback_connector_id)
+  references public.connectors(organization_id, id) on delete set null
 );
 create table if not exists public.agent_identities(
  id uuid primary key default gen_random_uuid(),organization_id uuid not null,agent_id text not null,public_key text not null,private_key_ciphertext text not null,private_key_iv text not null,private_key_auth_tag text not null,
