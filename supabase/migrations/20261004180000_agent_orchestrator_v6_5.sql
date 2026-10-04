@@ -178,6 +178,7 @@ set search_path=pg_catalog,public,auth,extensions as $$
   limit greatest(1,least(coalesce(p_limit,8),50));
 $$;
 revoke all on function public.search_workspace_knowledge(uuid,uuid,vector,integer,boolean) from public,anon,authenticated;
+grant execute on function public.search_workspace_knowledge(uuid,uuid,vector,integer,boolean) to service_role;
 
 create or replace function public.search_workspace_memory(
   p_organization_id uuid,
@@ -202,6 +203,7 @@ language sql security definer set search_path=pg_catalog,public,auth,extensions 
   limit greatest(1,least(coalesce(p_limit,8),50));
 $$;
 revoke all on function public.search_workspace_memory(uuid,uuid,text,integer) from public,anon,authenticated;
+grant execute on function public.search_workspace_memory(uuid,uuid,text,integer) to service_role;
 
 comment on table public.knowledge_chunks is 'V6.5 tenant-bound semantic chunks. Payload belongs to exactly one workspace document or memory.';
 comment on function public.search_workspace_knowledge(uuid,uuid,vector,integer,boolean) is 'Server-only semantic workspace retrieval with explicit organization and private-memory owner boundaries.';
