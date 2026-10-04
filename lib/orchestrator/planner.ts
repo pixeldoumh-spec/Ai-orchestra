@@ -10,34 +10,53 @@ const plannerStepSchema = z.object({
   dependsOn: z.array(z.string().regex(/^[a-z][a-z0-9_-]{1,63}$/)).max(16),
   maxAttempts: z.number().int().min(1).max(5).default(3),
   kind: z.enum(["work", "verification"]),
-  verifies: z.array(z.string().regex(/^[a-z][a-z0-9_-]{1,63}$/)).max(16).optional().default([]),
+  verifies: z.array(z.string().regex(/^[a-z][a-z0-9_-]{1,63}$/)).max(16).default([]),
 });
 
 const plannerResponseSchema = z.object({
-  rationale: z.string().trim().max(2000).optional(),
+  rationale: z.string().trim().max(2000).default(""),
   steps: z.array(plannerStepSchema).min(2).max(16),
 });
 
-function extractJson(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  const fenced = value.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidate = (fenced?.[1] ?? value).trim();
-  try { return JSON.parse(candidate); } catch {}
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    try { return JSON.parse(candidate.slice(start, end + 1)); } catch {}
-  }
-  throw new Error("Planner did not return valid JSON");
-}
+const PLANNER_OUTPUT_SCHEMA = {
+  name: "workflow_plan_v6_1",
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      rationale: { type: "string" },
+      steps: {
+        type: "array",
+        minItems: 2,
+        maxItems: 16,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: { type: "string" },
+            agentId: { type: "string" },
+            objective: { type: "string" },
+            dependsOn: { type: "array", items: { type: "string" } },
+            maxAttempts: { type: "integer" },
+            kind: { type: "string", enum: ["work", "verification"] },
+            verifies: { type: "array", items: { type: "string" } },
+          },
+          required: ["id", "agentId", "objective", "dependsOn", "maxAttempts", "kind", "verifies"],
+        },
+      },
+    },
+    required: ["rationale", "steps"],
+  },
+} as const;
 
 function fallbackIds(agents: AgentDefinition[]) {
   const used = new Set<string>();
   const pick = (capability: string, preferred: string) => {
     const candidates = agents.filter((agent) => agent.status !== "offline");
-    const id = candidates.find((agent) => agent.id === preferred && !used.has(agent.id))?.id
-      ?? candidates.find((agent) => agent.capabilities.includes(capability) && !used.has(agent.id))?.id
-      ?? candidates.find((agent) => !used.has(agent.id))?.id;
+    const id =
+      candidates.find((agent) => agent.id === preferred && !used.has(agent.id))?.id ??
+      candidates.find((agent) => agent.capabilities.includes(capability) && !used.has(agent.id))?.id ??
+      candidates.find((agent) => !used.has(agent.id))?.id;
     if (id) used.add(id);
     return id;
   };
@@ -46,7 +65,9 @@ function fallbackIds(agents: AgentDefinition[]) {
   const analysis = pick("analysis", "analysis");
   const writer = pick("writing", "writer");
   const verifier = pick("verification", "verifier");
-  if (!research || !analysis || !writer || !verifier) throw new Error("No healthy agent set can satisfy the V3 fallback plan");
+  if (!research || !analysis || !writer || !verifier) {
+    throw new Error("No healthy agent set can satisfy the V3 fallback plan");
+  }
   return { research, analysis, writer, verifier };
 }
 
@@ -65,22 +86,30 @@ export async function planWorkflow(input: {
 
   const agentCatalog = input.agents
     .filter((agent) => agent.status !== "offline")
-    .map((agent) => ({ id: agent.id, capabilities: agent.capabilities, tools: agent.tools, budgetCents: agent.budgetCents }))
+    .map((agent) => ({
+      id: agent.id,
+      capabilities: agent.capabilities,
+      tools: agent.tools,
+      budgetCents: agent.budgetCents,
+    }))
     .slice(0, 32);
 
   const model = getModelAdapter();
   const result = await model.complete({
-    model: process.env.AI_PLANNER_MODEL ?? process.env.OPENAI_MODEL,
-    system: `You are the V3 workflow planner. Convert the user's goal into a small executable DAG. You may only use the listed agents. Maximize safe parallelism when steps are independent. Include at least one verification step and make sure every terminal work step is explicitly covered by verification. Never include a step whose agent or dependency is not listed. Return JSON only with keys: rationale, steps[]. Each step has id, agentId, objective, dependsOn, maxAttempts, kind, verifies. No markdown.`,
+    model: process.env.AI_PLANNER_MODEL ?? "gpt-5.5",
+    system: "You are the planning authority for AI Orchestra. Produce the smallest safe executable DAG that can satisfy the user's goal. Use only listed agents. Prefer useful parallelism for independent work. Include a verification step that covers all terminal work. Separate evidence gathering, reasoning, synthesis and verification. Do not fabricate tool access or external facts. Return only the required structured plan. Never expose private chain-of-thought.",
     user: JSON.stringify({
       goal: input.goal,
       agents: agentCatalog,
       priorResults: input.priorResults?.slice(-12) ?? [],
       failureContext: input.failureContext ?? null,
     }),
+    outputSchema: PLANNER_OUTPUT_SCHEMA,
+    reasoningEffort: (process.env.AI_PLANNER_REASONING_EFFORT as "low" | "medium" | "high" | "xhigh" | undefined) ?? "high",
+    verbosity: "low",
   });
 
-  const parsed = plannerResponseSchema.parse(extractJson(result.output));
-  const plan: WorkflowPlan = { version: "v3", rationale: parsed.rationale, steps: parsed.steps };
+  const parsed = plannerResponseSchema.parse(result.output);
+  const plan: WorkflowPlan = { version: "v3", rationale: parsed.rationale || undefined, steps: parsed.steps };
   return validatePlan(plan, available);
 }
