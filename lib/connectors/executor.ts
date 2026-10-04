@@ -182,6 +182,48 @@ export async function executePreparedConnectorRequest(input: {
   if (request.action_method && request.action_method !== method) throw new Error("Approved connector method does not match stored intent");
   if (request.action_path && request.action_path !== path) throw new Error("Approved connector path does not match stored intent");
 
+  const { data: agent, error: agentError } = await db
+    .from("agents")
+    .select("id,status,permissions,tools")
+    .eq("organization_id", input.organizationId)
+    .eq("id", request.agent_id)
+    .single();
+  if (agentError || !agent) throw new Error("Execution agent is not registered");
+  const agentPermissions = Array.isArray(agent.permissions) ? agent.permissions : [];
+  const agentTools = Array.isArray(agent.tools) ? agent.tools : [];
+  if (agent.status !== "healthy") throw new Error("Execution agent is not healthy");
+  if (!agentTools.includes("external.action") || !agentPermissions.includes("external.execute")) {
+    throw new Error("Execution agent is no longer authorized for external actions");
+  }
+
+  const { data: policy } = await db
+    .from("organization_policies")
+    .select("allow_external_actions,require_approval_for_external")
+    .eq("organization_id", input.organizationId)
+    .maybeSingle();
+  if (policy && policy.allow_external_actions !== true) {
+    throw new Error("Organization policy currently disallows external actions");
+  }
+  if (policy && policy.require_approval_for_external !== true) {
+    throw new Error("External action policy is inconsistent with the approval-gated execution path");
+  }
+
+  const { data: binding, error: bindingError } = await db
+    .from("agent_connector_bindings")
+    .select("id,credential_id,allowed_tools,scopes,status")
+    .eq("organization_id", input.organizationId)
+    .eq("agent_id", request.agent_id)
+    .eq("connector_id", request.connector_id)
+    .eq("status", "active")
+    .maybeSingle();
+  if (bindingError) throw new Error(bindingError.message);
+  if (!binding || !Array.isArray(binding.allowed_tools) || !binding.allowed_tools.includes("external.action")) {
+    throw new Error("Connector binding is no longer authorized for external actions");
+  }
+  if ((binding.credential_id ?? null) !== (request.credential_id ?? null)) {
+    throw new Error("Approved connector credential no longer matches the active binding");
+  }
+
   const { data: connector, error: connectorError } = await db
     .from("connectors")
     .select("id,name,kind,base_url,auth_scheme,status,circuit_state,cooldown_until")
