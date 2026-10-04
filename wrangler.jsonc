@@ -3,7 +3,9 @@
   "name": "ai-orchestra",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
@@ -19,5 +21,22 @@
   },
   "observability": {
     "enabled": true
-  }
+  },
+  "vars": {
+    "SUPABASE_URL": "https://bpkrqfohfgdchkgxideb.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_URL": "https://bpkrqfohfgdchkgxideb.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_hm0MOZmZ6NTww0MB824XXg_sDshd8TI",
+    "AI_MODEL_PROVIDER": "mock",
+    "AI_INPUT_USD_PER_MILLION": "0",
+    "AI_OUTPUT_USD_PER_MILLION": "0",
+    "TASK_MAX_BATCHES": "12",
+    "TASK_MAX_STEPS": "12",
+    "TASK_MAX_REPLANS": "2",
+    "TASK_LEASE_SECONDS": "600",
+    "APPROVAL_TTL_SECONDS": "1800",
+    "CREDENTIAL_ACTIVE_KEY_VERSION": "1",
+    "ENTERPRISE_DEFAULT_REGION": "ap-south-1"
+  },
+  "workers_dev": true,
+  "preview_urls": false
 }
