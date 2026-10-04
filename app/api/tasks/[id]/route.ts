@@ -1,3 +1,4 @@
+import { getErrorStatus } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { getOrganizationForUser, requireUser } from "@/lib/auth";
 import { getTask } from "@/lib/orchestrator/repository";
@@ -10,7 +11,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     if (!org) return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     return NextResponse.json({ task: await getTask(id, org.id) });
   } catch (error) {
-    const status = error instanceof Response ? error.status : 500;
+    const status = getErrorStatus(error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status });
   }
 }
