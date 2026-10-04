@@ -84,7 +84,7 @@ export async function executeQueuedTask(input: {
       .maybeSingle();
     await finishBackgroundWorkerRun({
       id: run.id,
-      status: result.claimed ? "completed" : "skipped",
+      status: result.workerError ? "failed" : result.claimed ? "completed" : "skipped",
       startedAt,
       metadata: {
         dispatchId: input.dispatchId,
@@ -93,6 +93,9 @@ export async function executeQueuedTask(input: {
         taskStatus: task?.status ?? null,
       },
     });
+    if (result.workerError) {
+      throw new Error("Background task execution returned a retryable worker failure");
+    }
     return result;
   } catch (error) {
     await finishBackgroundWorkerRun({
