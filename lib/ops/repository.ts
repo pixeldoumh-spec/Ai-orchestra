@@ -46,7 +46,7 @@ export async function recordExecutionMetric(input: ExecutionMetricInput) {
     output_tokens: Math.max(0, Math.floor(input.outputTokens ?? 0)),
     usage_cents: Math.max(0, Math.floor(input.usageCents ?? 0)),
     resource_unit: input.resourceUnit ?? null,
-    resource_quantity: input.resourceQuantity == null ? null : Math.max(0, Math.floor(input.resourceQuantity)),
+    resource_quantity: input.resourceQuantity == null ? null : Math.max(0, Number(input.resourceQuantity).toFixed(4)),
     fallback_from_provider: input.fallbackFromProvider ?? null,
     fallback_from_model: input.fallbackFromModel ?? null,
     error_class: input.errorClass?.slice(0, 120) ?? null,
