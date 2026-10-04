@@ -64,3 +64,53 @@ The planner and verifier use strict Structured Outputs. Work agents use native f
 3. Run `npm run test:core`.
 4. Run `npm run typecheck`.
 5. Run `npm run build`.
+
+
+## V6.2 real tool & evidence layer
+
+V6.2 adds live web research through the Responses API `web_search` tool, tenant-scoped document ingestion into a private Supabase Storage bucket plus an OpenAI vector store, structured evidence packets, source citations and real read-only HTTP connector execution.
+
+### Knowledge flow
+
+Browser upload
+→ authenticated tenant route
+→ private Supabase Storage
+→ OpenAI Files API (`purpose=user_data`)
+→ tenant vector store
+→ `file_search`
+→ cited model result
+→ immutable evidence packet.
+
+OpenAI's Responses API provides hosted web search with URL citations and hosted file search over vector stores. The application persists only bounded provenance/citation metadata and excerpts, not raw connector credentials or hidden chain-of-thought. citeturn517965search0turn517965search1
+
+### Connector flow
+
+Model
+→ declared `connector.http.get`
+→ tenant trust/binding/credential checks
+→ HTTPS same-origin path resolution
+→ authenticated GET
+→ size + timeout bounds
+→ connector health/circuit update
+→ evidence packet
+→ model.
+
+High-risk `external.action` remains approval-gated and is not converted into an unrestricted side-effect engine in V6.2.
+
+### Supported document ingestion
+
+The V6.2 ingestion route accepts common PDFs, DOC/DOCX, PPTX, Markdown, text, CSV, JSON, HTML and supported source-code formats up to 50 MB. Supabase recommends standard uploads for smaller files and resumable uploads for larger files; the V6.2 HTTP route intentionally keeps a bounded 50 MB tenant upload envelope for predictable Worker behavior. citeturn711246search0turn456443search7
+
+### Runtime configuration
+
+Add `OPENAI_API_KEY` as a Cloudflare Worker runtime Secret. Keep `AI_MODEL_PROVIDER=mock` until you are ready to activate real model traffic.
+
+For real V6.2 tool execution:
+`AI_MODEL_PROVIDER=openai`
+`OPENAI_MODEL=gpt-5.4-mini`
+`AI_PLANNER_MODEL=gpt-5.5`
+`AI_VERIFIER_MODEL=gpt-5.5`
+`AI_WEB_SEARCH_CONTEXT_SIZE=medium`
+`AI_FILE_SEARCH_MAX_RESULTS=8`
+
+Supabase Storage must remain private; file access is controlled by the authenticated tenant boundary and server-side service-role routes. citeturn456443search4
