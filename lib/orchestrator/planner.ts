@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { buildAdaptiveFallbackPlan, validatePlan, type WorkflowPlan } from "@/lib/core/workflow";
 import type { AgentDefinition } from "./types";
-import { getModelAdapter } from "./model";
+import { getDefaultModel, getModelAdapter } from "./model";
 
 const plannerStepSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_-]{1,63}$/),
@@ -96,7 +96,7 @@ export async function planWorkflow(input: {
 
   const model = getModelAdapter();
   const result = await model.complete({
-    model: process.env.AI_PLANNER_MODEL ?? "gpt-5.5",
+    model: getDefaultModel("planner"),
     system: "You are the planning authority for AI Orchestra. Produce the smallest safe executable DAG that can satisfy the user's goal. Use only listed agents. Prefer useful parallelism for independent work. Include a verification step that covers all terminal work. Separate evidence gathering, reasoning, synthesis and verification. Do not fabricate tool access or external facts. Return only the required structured plan. Never expose private chain-of-thought.",
     user: JSON.stringify({
       goal: input.goal,

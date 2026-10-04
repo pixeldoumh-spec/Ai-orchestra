@@ -66,6 +66,15 @@ The planner and verifier use strict Structured Outputs. Work agents use native f
 5. Run `npm run build`.
 
 
+## Cloudflare Workers AI runtime
+
+The Cloudflare deployment now has a native Workers AI binding (AI) and a provider adapter for the GPT-OSS Responses API. Cloudflare documents that Workers AI bindings are exposed as env.AI, and the GPT-OSS 20B/120B models support the Responses API and function calling. citeturn941580search0turn527232search1turn527232search8
+
+The production Wrangler configuration selects cloudflare_workers_ai with @cf/openai/gpt-oss-20b by default. The adapter uses rejectIfBusy to fail fast on temporary capacity pressure, caps output tokens, bounds request time, detects Cloudflare's daily-allocation error, and records estimated Neuron usage without storing provider secrets. Cloudflare's current Workers AI Free allocation is 10,000 Neurons per day and resets at 00:00 UTC; exceeding that allocation on Workers Free causes subsequent inference to fail until reset. citeturn941580search1turn755134search0turn755134search6
+
+Workers AI's hosted web-search/file-search tools are not silently passed to this adapter because those tools are not equivalent to Cloudflare's native inference binding. V6.2's OpenAI-hosted grounding path remains available when AI_MODEL_PROVIDER=openai; Workers AI currently provides the model execution/runtime layer and application-owned function tools. This separation avoids pretending that a provider-specific tool exists when it does not.
+
+For local development without a Cloudflare runtime, keep AI_MODEL_PROVIDER=mock. For Cloudflare deployment, the checked-in wrangler.jsonc supplies the AI binding and Workers AI runtime variables.
 ## V6.2 real tool & evidence layer
 
 V6.2 adds live web research through the Responses API `web_search` tool, tenant-scoped document ingestion into a private Supabase Storage bucket plus an OpenAI vector store, structured evidence packets, source citations and real read-only HTTP connector execution.
