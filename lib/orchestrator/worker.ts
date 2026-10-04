@@ -9,6 +9,7 @@ import { readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
 import { recordEnterpriseUsage } from "@/lib/enterprise/metering";
 import { getHostedModelTools } from "@/lib/evidence/tools";
 import { persistModelCitations } from "@/lib/evidence/repository";
+import { getAgentSpecialization } from "./specialization";
 
 const MAX_TOOL_REQUESTS_PER_STEP = 8;
 const MAX_MODEL_TURNS = 8;
@@ -43,19 +44,17 @@ function resolveReasoningEffort(stepKind: "work" | "verification"): "none" | "lo
 }
 
 function agentGuidance(agent: AgentDefinition, stepKind: "work" | "verification"): string {
-  if (stepKind === "verification") {
-    return "Act as an adversarial verifier. Check the produced work against the goal and supporting evidence. Do not pass because the answer sounds plausible. Distinguish verified facts from assumptions and identify missing evidence. Never expose private chain-of-thought.";
-  }
-  if (agent.capabilities.includes("research")) {
-    return "Act as the evidence-gathering specialist. Prefer concrete observations over assumptions. State uncertainty clearly, use available tools when useful, and do not claim external facts without evidence.";
-  }
-  if (agent.capabilities.includes("analysis")) {
-    return "Act as the reasoning specialist. Compare the available evidence, identify contradictions and uncertainty, and derive conclusions only from supported inputs. Do not invent missing data.";
-  }
-  if (agent.capabilities.includes("writing")) {
-    return "Act as the synthesis specialist. Convert verified inputs into a clear, decision-useful deliverable. Preserve uncertainty and do not introduce unsupported claims.";
-  }
-  return `Act according to your declared capabilities: ${agent.capabilities.join(", ")}.`;
+  const specialization = getAgentSpecialization(agent, stepKind);
+  return [
+    `Specialized role: ${specialization.role}`,
+    `Mission: ${specialization.mission}`,
+    "Operating rules:",
+    ...specialization.operatingRules.map((rule) => `- ${rule}`),
+    "Output contract:",
+    ...specialization.outputContract.map((rule) => `- ${rule}`),
+    "Evidence policy:",
+    ...specialization.evidencePolicy.map((rule) => `- ${rule}`),
+  ].join("\n");
 }
 
 export async function processTask(taskId: string, organizationId: string, workerId = `worker_${crypto.randomUUID()}`) {
@@ -281,6 +280,7 @@ async function runStep(input: {
         toolCallCount: result.functionCalls?.length ?? 0,
         provider: result.provider ?? model.provider ?? null,
         resourceUsage: result.resourceUsage ?? null,
+        specialization: getAgentSpecialization(agent, step.kind).role,
       });
       if (metering?.budget_exceeded) throw new Error("Enterprise monthly spend ceiling exceeded by actual model usage");
       if (result.usageCents > agent.budgetCents) throw new Error(`Agent budget exceeded: ${result.usageCents} > ${agent.budgetCents} cents`);
@@ -400,14 +400,24 @@ async function runStep(input: {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown step error";
     if (attempt < step.max_attempts) {
-      const delay = Math.min(60_000, 2 ** (attempt - 1) * 1_000);
+      const baseDelay = Math.min(60_000, 2 ** (attempt - 1) * 1_000);
+      const jitter = Math.floor(Math.random() * Math.min(750, Math.max(50, baseDelay * 0.15)));
+      const delay = Math.min(60_000, baseDelay + jitter);
       await updateStep(step.id, {
         status: "queued",
         error: message,
         run_after: new Date(Date.now() + delay).toISOString(),
         usage_cents: step.usage_cents,
       });
-      await appendEvent(taskId, organizationId, "step.retry_scheduled", { stepId: step.id, error: message, delayMs: delay, attempt });
+      await appendEvent(taskId, organizationId, "step.retry_scheduled", {
+        stepId: step.id,
+        agentId: agent.id,
+        specialization: getAgentSpecialization(agent, step.kind).role,
+        error: message,
+        delayMs: delay,
+        attempt,
+        nextAttempt: attempt + 1,
+      });
       return { stepId: step.id, status: "queued", usageCents: 0 };
     }
     await updateStep(step.id, { status: "failed", error: message, finished_at: new Date().toISOString() });
