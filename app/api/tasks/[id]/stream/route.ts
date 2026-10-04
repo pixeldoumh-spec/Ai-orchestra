@@ -42,7 +42,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         };
         try {
           controller.enqueue(encoder.encode(`retry: 3000\n\n`));
-          controller.enqueue(encoder.encode(encodeEvent(`snapshot-${Date.now()}`, {
+          controller.enqueue(encoder.encode(encodeEvent(String(cursor), {
             type: "snapshot",
             task: await getTask(taskId, org.id),
           })));
@@ -86,7 +86,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : "Stream error";
-          try { controller.enqueue(encoder.encode(encodeEvent(`error-${Date.now()}`, { type: "error", error: message }))); } catch {}
+          try { controller.enqueue(encoder.encode(encodeEvent(String(lastId), { type: "error", error: message }))); } catch {}
           close();
         } finally {
           close();
