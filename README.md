@@ -1,4 +1,4 @@
-# AI Orchestra V6.2
+# AI Orchestra V6.3
 
 A provider-neutral AI control plane for planning, executing, verifying, protecting and governing multi-agent workflows.
 
@@ -75,6 +75,19 @@ The production Wrangler configuration selects cloudflare_workers_ai with @cf/ope
 Workers AI's hosted web-search/file-search tools are not silently passed to this adapter because those tools are not equivalent to Cloudflare's native inference binding. V6.2's OpenAI-hosted grounding path remains available when AI_MODEL_PROVIDER=openai; Workers AI currently provides the model execution/runtime layer and application-owned function tools. This separation avoids pretending that a provider-specific tool exists when it does not.
 
 For local development without a Cloudflare runtime, keep AI_MODEL_PROVIDER=mock. For Cloudflare deployment, the checked-in wrangler.jsonc supplies the AI binding and Workers AI runtime variables.
+## V6.3 real agents
+
+V6.3 turns the four runtime roles into explicit specializations rather than generic prompts.
+
+- Research Agent: evidence gathering, source-quality discipline, conflict detection and explicit unknowns.
+- Analysis Agent: contradiction detection, evidence-to-conclusion reasoning and uncertainty preservation.
+- Writer Agent: user-facing synthesis constrained to verified upstream material.
+- Verifier Agent: adversarial completeness and support checks with strict structured pass/fail output.
+
+The planner now receives specialization metadata and rejects plans that do not cover Research, Analysis, Writer and Verifier. Each executed step carries its resolved specialization in model-completion telemetry. Failed steps use bounded exponential retry with jitter, then enter the existing bounded replan path when retries are exhausted. Verifier rejection is treated as a real step failure and therefore cannot finalize a task.
+
+The production runtime remains provider-neutral. When the live provider is Cloudflare Workers AI, these specializations run on the configured Workers AI model; when OpenAI is selected, the same specialization contracts run through the OpenAI Responses adapter.
+
 ## V6.2 real tool & evidence layer
 
 V6.2 adds live web research through the Responses API `web_search` tool, tenant-scoped document ingestion into a private Supabase Storage bucket plus an OpenAI vector store, structured evidence packets, source citations and real read-only HTTP connector execution.
