@@ -140,6 +140,17 @@ export async function executePreparedConnectorRequest(input: {
     .single();
   if (requestError || !request) throw new Error("Connector request not found");
   if (request.status !== "approved") throw new Error(`Connector request is not approved (${request.status})`);
+  const { data: claimed, error: claimError } = await db
+    .from("connector_requests")
+    .update({ status: "executing", completed_at: null })
+    .eq("organization_id", input.organizationId)
+    .eq("id", request.id)
+    .eq("status", "approved")
+    .select("id,organization_id,task_id,step_id,agent_id,connector_id,credential_id,request_id,status,expires_at,input_ciphertext,input_iv,input_auth_tag,input_key_version,action_method,action_path")
+    .maybeSingle();
+  if (claimError) throw new Error(claimError.message);
+  if (!claimed) throw new Error("Connector request is already executing or is no longer approved");
+  Object.assign(request, claimed);
   if (Date.parse(request.expires_at) <= Date.now()) {
     await updateConnectorRequestStatus(request.id, "failed");
     throw new Error("Connector request has expired");
