@@ -28,5 +28,10 @@
       "service": "ai-orchestra"
     }
   ],
-  "vars": {}
+  "vars": {},
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  }
 }
