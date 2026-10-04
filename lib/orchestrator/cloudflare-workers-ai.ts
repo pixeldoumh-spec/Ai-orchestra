@@ -193,6 +193,125 @@ function isErrorEnvelope(value: unknown): boolean {
   return candidate.success === false && Array.isArray(candidate.errors) && candidate.errors.length > 0;
 }
 
+
+function usesChatCompletions(model: string): boolean {
+  return model === "@cf/zai-org/glm-4.7-flash";
+}
+
+function chatContent(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const candidate = part as { type?: unknown; text?: unknown };
+      return typeof candidate.text === "string" ? candidate.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function normalizeChatMessages(input: ModelCompleteInput): unknown[] {
+  const messages: Array<Record<string, unknown>> = [
+    { role: "system", content: formatStructuredInstruction(input) },
+  ];
+
+  for (const item of normalizeInputItems(input)) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as Record<string, unknown>;
+    const type = typeof candidate.type === "string" ? candidate.type : "";
+    if (type === "message") {
+      const content = chatContent(candidate.content);
+      if (content) messages.push({ role: "assistant", content });
+      continue;
+    }
+    if (type === "function_call") {
+      const callId = typeof candidate.call_id === "string" ? candidate.call_id : crypto.randomUUID();
+      const name = typeof candidate.name === "string" ? candidate.name : "unknown";
+      const args = typeof candidate.arguments === "string" ? candidate.arguments : "{}";
+      messages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: callId,
+          type: "function",
+          function: { name, arguments: args },
+        }],
+      });
+      continue;
+    }
+    if (type === "function_call_output") {
+      const callId = typeof candidate.call_id === "string" ? candidate.call_id : "";
+      const output = typeof candidate.output === "string" ? candidate.output : JSON.stringify(candidate.output ?? null);
+      if (callId) messages.push({ role: "tool", tool_call_id: callId, content: output });
+      continue;
+    }
+    const role = candidate.role;
+    if (role === "user" || role === "assistant" || role === "tool") {
+      const content = chatContent(candidate.content);
+      if (role === "tool") {
+        const callId = typeof candidate.tool_call_id === "string" ? candidate.tool_call_id : "";
+        if (callId) messages.push({ role: "tool", tool_call_id: callId, content });
+      } else if (content) {
+        messages.push({ role, content });
+      }
+    }
+  }
+  return messages;
+}
+
+function extractChatResponse(response: Record<string, unknown>) {
+  const usage = response.usage && typeof response.usage === "object"
+    ? response.usage as Record<string, unknown>
+    : {};
+  const choices = Array.isArray(response.choices) ? response.choices : [];
+  const first = choices[0] && typeof choices[0] === "object"
+    ? choices[0] as Record<string, unknown>
+    : {};
+  const message = first.message && typeof first.message === "object"
+    ? first.message as Record<string, unknown>
+    : {};
+  const outputText = typeof message.content === "string" ? message.content : "";
+  const toolCalls = Array.isArray(message.tool_calls)
+    ? message.tool_calls.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const call = item as Record<string, unknown>;
+        const fn = call.function && typeof call.function === "object"
+          ? call.function as Record<string, unknown>
+          : {};
+        if (typeof call.id !== "string" || typeof fn.name !== "string") return [];
+        const args = typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {});
+        return [{ callId: call.id, name: fn.name, arguments: args }];
+      })
+    : [];
+  const items: unknown[] = [];
+  if (outputText) items.push({
+    type: "message",
+    role: "assistant",
+    content: [{ type: "output_text", text: outputText }],
+  });
+  for (const call of toolCalls) {
+    items.push({
+      type: "function_call",
+      call_id: call.callId,
+      name: call.name,
+      arguments: call.arguments,
+    });
+  }
+  return {
+    outputText,
+    functionCalls: toolCalls,
+    responseItems: items,
+    inputTokens: Number(usage.prompt_tokens ?? usage.input_tokens ?? 0),
+    cachedInputTokens: Number(
+      (usage.prompt_tokens_details as Record<string, unknown> | undefined)?.cached_tokens ??
+      (usage.input_tokens_details as Record<string, unknown> | undefined)?.cached_tokens ??
+      0,
+    ),
+    outputTokens: Number(usage.completion_tokens ?? usage.output_tokens ?? 0),
+  };
+}
+
 export class CloudflareWorkersAIAdapter implements ModelAdapter {
   readonly provider = "cloudflare_workers_ai";
   private readonly runtimeEnv?: unknown;
@@ -213,14 +332,21 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
     const model = modelForInput(input);
     const ai = getWorkersAI(this.runtimeEnv);
     const maxTokens = maxOutputTokens();
-    const request: Record<string, unknown> = {
-      model,
-      instructions: formatStructuredInstruction(input),
-      input: normalizeInputItems(input),
-      stream: false,
-      max_output_tokens: maxTokens,
-      reasoning: { effort: normalizeReasoningEffort(input.reasoningEffort) },
-    };
+    const request: Record<string, unknown> = usesChatCompletions(model)
+      ? {
+          model,
+          messages: normalizeChatMessages(input),
+          stream: false,
+          max_tokens: maxTokens,
+        }
+      : {
+          model,
+          instructions: formatStructuredInstruction(input),
+          input: normalizeInputItems(input),
+          stream: false,
+          max_output_tokens: maxTokens,
+          reasoning: { effort: normalizeReasoningEffort(input.reasoningEffort) },
+        };
 
     const tools = normalizeTools(input.tools);
     if (tools.length > 0) request.tools = tools;
@@ -244,12 +370,20 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
       }
 
       const response = result as Record<string, unknown>;
-      const output = Array.isArray(response.output) ? response.output : [];
-      const outputText = typeof response.output_text === "string"
-        ? response.output_text
-        : extractOutputText(output);
-      const functionCalls = extractFunctionCalls(output);
-      const usage = extractUsage(response);
+      const chat = usesChatCompletions(model);
+      const chatParsed = chat ? extractChatResponse(response) : null;
+      const output = chat ? (chatParsed?.responseItems ?? []) : (Array.isArray(response.output) ? response.output : []);
+      const outputText = chat
+        ? (chatParsed?.outputText ?? "")
+        : (typeof response.output_text === "string" ? response.output_text : extractOutputText(output));
+      const functionCalls = chat
+        ? (chatParsed?.functionCalls ?? [])
+        : extractFunctionCalls(output);
+      const usage = chat ? {
+        inputTokens: Number.isFinite(chatParsed?.inputTokens ?? 0) ? Math.max(0, Number(chatParsed?.inputTokens ?? 0)) : 0,
+        cachedInputTokens: Number.isFinite(chatParsed?.cachedInputTokens ?? 0) ? Math.max(0, Number(chatParsed?.cachedInputTokens ?? 0)) : 0,
+        outputTokens: Number.isFinite(chatParsed?.outputTokens ?? 0) ? Math.max(0, Number(chatParsed?.outputTokens ?? 0)) : 0,
+      } : extractUsage(response);
       const structured = input.outputSchema ? parseJsonText(outputText) : null;
       if (input.outputSchema && structured === null && functionCalls.length === 0) {
         throw new Error(`Workers AI structured output ${input.outputSchema.name} could not be parsed`);
