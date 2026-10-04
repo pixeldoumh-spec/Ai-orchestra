@@ -266,7 +266,7 @@ async function executeConnectorRead(input: {
         ok: response.ok,
         contentType: response.headers.get("content-type"),
         url: sanitizeConnectorUrl(target.toString()),
-        body: body.slice(0, 50_000),
+        body: sanitizeConnectorText(body, 50_000),
         truncated: body.length > 50_000,
         contentHash: fingerprint,
       },
