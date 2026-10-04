@@ -1,5 +1,6 @@
 import type {
   ModelAdapter,
+  ModelCitation,
   ModelCompleteInput,
   ModelFunctionCall,
   ModelResult,
