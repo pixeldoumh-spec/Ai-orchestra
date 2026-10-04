@@ -2,9 +2,9 @@
 
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 
-type DocumentRow = { id: string; filename: string; mime_type: string; size_bytes: number; status: string; error?: string | null; created_at: string };
+type DocumentRow = { id: string; filename: string; mime_type: string; size_bytes: number; status: string; provider?: string; local_retrieval_status?: string; local_chunk_count?: number; error?: string | null; created_at: string };
 type MemoryRow = { id: string; kind: string; visibility: string; content: string; source_type: string; confidence: number; importance: number; created_at: string; };
-type ResultRow = MemoryRow & { score?: number };
+type ResultRow = { id: string; source_type: string; filename?: string | null; kind?: string | null; visibility?: string | null; content: string; score?: number; };
 
 export default function KnowledgePage() {
   const [organizationId, setOrganizationId] = useState("");
@@ -16,6 +16,7 @@ export default function KnowledgePage() {
   const [memoryKind, setMemoryKind] = useState("fact");
   const [memoryVisibility, setMemoryVisibility] = useState("workspace");
   const [query, setQuery] = useState("");
+  const [includePrivate, setIncludePrivate] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -81,10 +82,10 @@ export default function KnowledgePage() {
     event.preventDefault(); if (!query.trim() || !organizationId) return;
     setBusy(true); setMessage("Retrieving tenant knowledge…");
     try {
-      const res = await fetch("/api/knowledge/retrieve?organizationId=" + encodeURIComponent(organizationId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, limit: 8 }) });
+      const res = await fetch("/api/knowledge/retrieve?organizationId=" + encodeURIComponent(organizationId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, limit: 8, includePrivate }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) { setMessage(body.error ?? "Retrieval failed."); return; }
-      setResults(body.memories ?? []); setMessage(`${body.memories?.length ?? 0} memory result(s).`);
+      setResults(body.results ?? []); setMessage(`${body.results?.length ?? 0} result(s) from workspace knowledge.`);
     } finally { setBusy(false); }
   }
 
@@ -113,16 +114,16 @@ export default function KnowledgePage() {
 
       <section className="card">
         <div className="sectionTitle">Knowledge retrieval</div>
-        <p className="muted small">Searches only this workspace's active memory. Private memories are filtered by the authenticated user at the database boundary. Query text is not stored; retrieval telemetry keeps only a hash and counts.</p>
-        <form onSubmit={retrieve} className="composerRow"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search workspace knowledge…" disabled={busy} /><button type="submit" disabled={!query.trim() || !organizationId || busy}>Retrieve</button></form>
-        {results.map((item) => <div className="agentRow" key={item.id}><div className="agentDot"/><div><b>{item.kind}</b><div className="muted small">{item.content}</div></div><div className="agentRight"><span>{typeof item.score === "number" ? item.score.toFixed(2) : "match"}</span></div></div>)}
+        <p className="muted small">Semantic retrieval spans this workspace's indexed document chunks and durable memories. Private memory is never exposed to agents; this manual control can include it only for the authenticated owner. Query text is not stored; telemetry keeps only a hash and result counts.</p>
+        <form onSubmit={retrieve} className="composerRow"><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search workspace knowledge…" disabled={busy} /><button type="submit" disabled={!query.trim() || !organizationId || busy}>Retrieve</button></form><label className="muted small" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}><input type="checkbox" checked={includePrivate} onChange={(e) => setIncludePrivate(e.target.checked)} disabled={busy} /> Include my private memory in this manual search</label>
+        {results.map((item) => <div className="agentRow" key={item.id}><div className="agentDot"/><div><b>{item.source_type}{item.filename ? ` · ${item.filename}` : item.kind ? ` · ${item.kind}` : ""}</b><div className="muted small">{item.content}</div></div><div className="agentRight"><span>{typeof item.score === "number" ? item.score.toFixed(2) : "match"}</span></div></div>)}
       </section>
 
       <section className="card">
         <div className="sectionTitle">Document ingestion</div>
         <p className="muted small">Upload trusted workspace material for agent retrieval. Files remain in private tenant storage and are indexed into the workspace retrieval store.</p>
         <form onSubmit={upload} className="composerRow"><input type="file" accept=".pdf,.doc,.docx,.pptx,.txt,.md,.csv,.json,.html,.js,.ts,.py,.java,.c,.cpp,.cs,.go,.php,.rb,.sh" onChange={(event: ChangeEvent<HTMLInputElement>) => setFile(event.target.files?.[0] ?? null)} disabled={busy}/><button type="submit" disabled={!file || !organizationId || busy}>{busy ? "Working…" : "Add document"}</button></form>
-        {documents.map((doc) => <div className="agentRow" key={doc.id}><div className="agentDot"/><div><b>{doc.filename}</b><div className="muted small">{doc.mime_type} · {formatBytes(doc.size_bytes)}</div>{doc.error && <div className="muted small">{doc.error}</div>}</div><div className="agentRight"><span>{doc.status}</span></div></div>)}
+        {documents.map((doc) => <div className="agentRow" key={doc.id}><div className="agentDot"/><div><b>{doc.filename}</b><div className="muted small">{doc.mime_type} · {formatBytes(doc.size_bytes)} · local {doc.local_retrieval_status ?? "n/a"} ({doc.local_chunk_count ?? 0} chunks)</div>{doc.error && <div className="muted small">{doc.error}</div>}</div><div className="agentRight"><span>{doc.status}</span></div></div>)}
         {documents.length === 0 && <div className="empty">No workspace documents yet.</div>}
       </section>
 
