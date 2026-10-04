@@ -59,7 +59,17 @@ function agentGuidance(agent: AgentDefinition, stepKind: "work" | "verification"
   ].join("\n");
 }
 
+function hydrateRuntimeEnvironment(runtimeEnv?: unknown) {
+  if (!runtimeEnv || typeof runtimeEnv !== "object") return;
+  for (const [key, value] of Object.entries(runtimeEnv as Record<string, unknown>)) {
+    if (typeof value === "string" && /^[A-Z][A-Z0-9_]*$/.test(key)) {
+      process.env[key] = value;
+    }
+  }
+}
+
 export async function processTask(taskId: string, organizationId: string, workerId = `worker_${crypto.randomUUID()}`, runtimeEnv?: unknown) {
+  hydrateRuntimeEnvironment(runtimeEnv);
   const claimed = await claimTask(taskId, organizationId, workerId);
   if (!claimed) return { claimed: false, task: await getTask(taskId, organizationId) };
 
