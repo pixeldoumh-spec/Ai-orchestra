@@ -194,6 +194,18 @@ function isErrorEnvelope(value: unknown): boolean {
 }
 
 
+function normalizeChatTools(tools: ModelTool[] | undefined): unknown[] {
+  return normalizeTools(tools).map((tool: any) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      strict: tool.strict ?? true,
+    },
+  }));
+}
+
 function usesChatCompletions(model: string): boolean {
   return model === "@cf/zai-org/glm-4.7-flash";
 }
@@ -338,6 +350,7 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
           messages: normalizeChatMessages(input),
           stream: false,
           max_tokens: maxTokens,
+          chat_template_kwargs: { enable_thinking: false },
         }
       : {
           model,
@@ -348,7 +361,7 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
           reasoning: { effort: normalizeReasoningEffort(input.reasoningEffort) },
         };
 
-    const tools = normalizeTools(input.tools);
+    const tools = usesChatCompletions(model) ? normalizeChatTools(input.tools) : normalizeTools(input.tools);
     if (tools.length > 0) request.tools = tools;
 
     try {
