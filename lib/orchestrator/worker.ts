@@ -7,6 +7,8 @@ import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, Persist
 import { getModelTools, invokeTool, resolveModelToolId } from "@/lib/tools/gateway";
 import { readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
 import { recordEnterpriseUsage } from "@/lib/enterprise/metering";
+import { getHostedModelTools } from "@/lib/evidence/tools";
+import { persistModelCitations } from "@/lib/evidence/repository";
 
 const MAX_TOOL_REQUESTS_PER_STEP = 8;
 const MAX_MODEL_TURNS = 8;
@@ -210,7 +212,9 @@ async function runStep(input: {
   ].join("\n");
 
   try {
-    const tools = step.kind === "verification" ? [] : getModelTools(agent);
+    const tools = step.kind === "verification"
+      ? []
+      : [...getModelTools(agent), ...(await getHostedModelTools(organizationId, agent))];
     const modelName = resolveAgentModel(agent, step.kind);
     const reasoningEffort = resolveReasoningEffort(step.kind);
     const maxTurns = Math.min(MAX_MODEL_TURNS, Math.max(1, Number(process.env.AI_MAX_TOOL_TURNS ?? "8")));
@@ -230,6 +234,7 @@ async function runStep(input: {
     let lastModel: ModelResult | null = null;
     let finalOutput: unknown = null;
     let finalText = "";
+    const citations: NonNullable<ModelResult["citations"]> = [];
 
     for (let turn = 1; turn <= maxTurns; turn++) {
       const result = await model.complete({
@@ -243,6 +248,7 @@ async function runStep(input: {
       });
       lastModel = result;
       totalUsageCents += result.usageCents;
+      citations.push(...(result.citations ?? []));
 
       await recordUsage(step.id, result.usageCents);
       const metering = await recordEnterpriseUsage({
@@ -336,7 +342,20 @@ async function runStep(input: {
       throw new Error("Model did not produce a final result within the bounded turn budget");
     }
 
-    let storedResult = finalOutput;
+    const evidencePacketIds = citations.length > 0
+      ? await persistModelCitations({
+          organizationId,
+          taskId,
+          stepId: step.id,
+          agentId: agent.id,
+          outputText: finalText,
+          citations,
+        })
+      : [];
+
+    let storedResult: unknown = evidencePacketIds.length > 0
+      ? { content: finalOutput, evidencePacketIds }
+      : finalOutput;
     if (step.kind === "verification") {
       const verification = parseVerificationResult(finalOutput);
       if (!verification.passed) {
