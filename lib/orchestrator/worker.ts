@@ -201,6 +201,8 @@ async function runStep(input: {
   priorResults: unknown[];
   model: ModelAdapter;
   executionRegion?: string | null;
+  evidenceVectorStoreIds: string[];
+  evidencePackets: unknown[];
 }): Promise<{ stepId: string; status: "verified" | "failed" | "awaiting_approval" | "queued"; usageCents: number }> {
   const { taskId, organizationId, goal, maxCostCents, step, agent, priorResults, model, executionRegion, evidenceVectorStoreIds, evidencePackets } = input;
   const attempt = step.attempt_count + 1;
@@ -226,7 +228,8 @@ async function runStep(input: {
         `Goal: ${goal}`,
         `Objective: ${step.objective}`,
         `Step kind: ${step.kind}`,
-        `Prior verified results: ${JSON.stringify(priorResults).slice(0, 24000)}`,\n        `Evidence packets already observed: ${JSON.stringify(evidencePackets).slice(0, 12000)}`,
+        `Prior verified results: ${JSON.stringify(priorResults).slice(0, 24000)}`,
+        `Evidence packets already observed: ${JSON.stringify(evidencePackets).slice(0, 12000)}`,
         step.kind === "verification"
           ? "Evaluate the produced work and return only the structured verification result."
           : "Produce useful work and use tools when they materially improve accuracy. Finish with the requested deliverable, not internal reasoning.",
@@ -245,7 +248,8 @@ async function runStep(input: {
         tools,
         outputSchema: step.kind === "verification" ? VERIFICATION_OUTPUT_SCHEMA : null,
         reasoningEffort,
-        verbosity: step.kind === "verification" ? "low" : "medium",\n        webSearch: (process.env.AI_ENABLE_WEB_SEARCH ?? "true") === "true" && (agent.capabilities.includes("research") || step.kind === "verification"),\n        fileSearchVectorStoreIds: (process.env.AI_ENABLE_FILE_SEARCH ?? "true") === "true" ? evidenceVectorStoreIds : [],
+        verbosity: step.kind === "verification" ? "low" : "medium",
+        webSearch: (process.env.AI_ENABLE_WEB_SEARCH ?? "true") === "true" && (agent.capabilities.includes("research") || step.kind === "verification"),\n        fileSearchVectorStoreIds: (process.env.AI_ENABLE_FILE_SEARCH ?? "true") === "true" ? evidenceVectorStoreIds : [],
       });
       lastModel = result;
       totalUsageCents += result.usageCents;
@@ -351,6 +355,15 @@ async function runStep(input: {
       storedResult = verification;
     }
 
+    const evidencePacket = await persistEvidencePacket({
+      organizationId,
+      taskId,
+      stepId: step.id,
+      model: lastModel.model ?? modelName,
+      outputText: finalText,
+      responseItems: lastModel.responseItems ?? [],
+    });
+
     await updateStep(step.id, {
       status: "verified",
       result: storedResult,
@@ -359,6 +372,8 @@ async function runStep(input: {
         completedAt: new Date().toISOString(),
         usageCents: totalUsageCents,
         model: lastModel.model ?? modelName,
+        evidencePacketId: evidencePacket.id,
+        evidenceCitationCount: evidencePacket.citationCount,
       },
       usage_cents: totalUsageCents,
       finished_at: new Date().toISOString(),
@@ -369,6 +384,8 @@ async function runStep(input: {
       usageCents: totalUsageCents,
       model: lastModel.model ?? modelName,
       kind: step.kind,
+      evidencePacketId: evidencePacket.id,
+      evidenceCitationCount: evidencePacket.citationCount,
     });
     return { stepId: step.id, status: "verified", usageCents: totalUsageCents };
   } catch (error) {
