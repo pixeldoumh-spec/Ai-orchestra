@@ -93,6 +93,10 @@ create index if not exists knowledge_chunks_document_idx on public.knowledge_chu
 create index if not exists knowledge_chunks_memory_idx on public.knowledge_chunks(organization_id,memory_id);
 create index if not exists knowledge_chunks_embedding_idx on public.knowledge_chunks using ivfflat(embedding vector_cosine_ops) with(lists=100);
 
+alter table public.knowledge_chunks enable row level security;
+drop policy if exists "knowledge chunks deny browser access" on public.knowledge_chunks;
+create policy "knowledge chunks deny browser access" on public.knowledge_chunks
+for all to authenticated using(false) with check(false);
 revoke all on table public.knowledge_chunks from anon,authenticated;
 
 alter table public.knowledge_documents
