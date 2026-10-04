@@ -6,6 +6,7 @@ import {
   uploadKnowledgeFile,
   isSupportedKnowledgeMimeType,
 } from "./openai";
+import { indexDocumentForLocalRetrieval } from "./retrieval";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const BUCKET = "knowledge-documents";
@@ -23,11 +24,15 @@ function sha256(buffer: ArrayBuffer) {
   return createHash("sha256").update(Buffer.from(buffer)).digest("hex");
 }
 
+function providerName() {
+  return (process.env.AI_MODEL_PROVIDER ?? "workers_ai").trim().toLowerCase();
+}
+
 export async function listKnowledgeDocuments(organizationId: string) {
   const db = createAdminClient();
   const { data, error } = await db
     .from("knowledge_documents")
-    .select("id,filename,mime_type,size_bytes,content_sha256,provider_file_id,provider_vector_store_file_id,status,error,metadata,created_at,updated_at")
+    .select("id,filename,mime_type,size_bytes,content_sha256,provider,provider_file_id,provider_vector_store_file_id,status,local_retrieval_status,local_chunk_count,local_indexed_at,error,metadata,created_at,updated_at")
     .eq("organization_id", organizationId)
     .neq("status", "deleted")
     .order("created_at", { ascending: false });
@@ -64,10 +69,11 @@ export async function ingestKnowledgeDocument(input: {
   const contentHash = sha256(bytes);
   const filename = safeFilename(input.file.name);
   const db = createAdminClient();
+  const runtimeProvider = providerName();
 
   const { data: duplicate } = await db
     .from("knowledge_documents")
-    .select("id,status,filename")
+    .select("id,status,filename,provider,local_retrieval_status,local_chunk_count")
     .eq("organization_id", input.organizationId)
     .eq("content_sha256", contentHash)
     .neq("status", "deleted")
@@ -75,7 +81,7 @@ export async function ingestKnowledgeDocument(input: {
   if (duplicate) return { duplicate: true, document: duplicate };
 
   const documentId = crypto.randomUUID();
-  const storagePath = `${input.organizationId}/${documentId}/${filename}`;
+  const storagePath = input.organizationId + "/" + documentId + "/" + filename;
   const { error: storageError } = await db.storage
     .from(BUCKET)
     .upload(storagePath, new Blob([bytes], { type: mimeType }), {
@@ -96,21 +102,71 @@ export async function ingestKnowledgeDocument(input: {
       content_sha256: contentHash,
       storage_bucket: BUCKET,
       storage_path: storagePath,
-      provider: "openai",
+      provider: runtimeProvider === "openai" ? "openai" : "workers_ai_local",
       status: "stored",
-      metadata: { original_filename: input.file.name },
+      local_retrieval_status: "not_indexed",
+      local_chunk_count: 0,
+      metadata: { original_filename: input.file.name, ingestion_version: "6.5" },
       created_by: input.createdBy,
     })
-    .select("id,filename,mime_type,size_bytes,status,created_at")
+    .select("id,filename,mime_type,size_bytes,status,provider,local_retrieval_status,local_chunk_count,created_at")
     .single();
+
   if (insertError) {
     await db.storage.from(BUCKET).remove([storagePath]);
     throw new Error(insertError.message);
   }
 
+  let localIndex: { status: "indexed" | "unsupported" | "failed"; chunkCount: number } = {
+    status: "unsupported",
+    chunkCount: 0,
+  };
+  try {
+    localIndex = await indexDocumentForLocalRetrieval({
+      organizationId: input.organizationId,
+      documentId,
+      file: input.file,
+      mimeType,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Local semantic indexing failed";
+    await db.from("knowledge_documents").update({
+      local_retrieval_status: "failed",
+      local_chunk_count: 0,
+      error: message.slice(0, 1000),
+      updated_at: new Date().toISOString(),
+    }).eq("id", documentId).eq("organization_id", input.organizationId);
+    localIndex = { status: "failed", chunkCount: 0 };
+  }
+
+  if (runtimeProvider !== "openai") {
+    const status = localIndex.status === "failed" ? "failed" : "ready";
+    await db.from("knowledge_documents").update({
+      status,
+      error: localIndex.status === "failed" ? "Local semantic indexing failed" : null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", documentId).eq("organization_id", input.organizationId);
+    return {
+      duplicate: false,
+      document: {
+        ...document,
+        provider_file_id: null,
+        provider_vector_store_file_id: null,
+        status,
+        local_retrieval_status: localIndex.status,
+        local_chunk_count: localIndex.chunkCount,
+      },
+    };
+  }
+
   try {
     await ensureKnowledgeVectorStore(input.organizationId);
-    await db.from("knowledge_documents").update({ status: "indexing", error: null, updated_at: new Date().toISOString() }).eq("id", documentId).eq("organization_id", input.organizationId);
+    await db.from("knowledge_documents").update({
+      status: "indexing",
+      error: null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", documentId).eq("organization_id", input.organizationId);
+
     const indexed = await uploadKnowledgeFile({
       organizationId: input.organizationId,
       documentId,
@@ -133,6 +189,8 @@ export async function ingestKnowledgeDocument(input: {
         provider_file_id: indexed.providerFileId,
         provider_vector_store_file_id: indexed.providerVectorStoreFileId,
         status: indexed.status,
+        local_retrieval_status: localIndex.status,
+        local_chunk_count: localIndex.chunkCount,
       },
     };
   } catch (error) {
@@ -144,7 +202,13 @@ export async function ingestKnowledgeDocument(input: {
     }).eq("id", documentId).eq("organization_id", input.organizationId);
     return {
       duplicate: false,
-      document: { ...document, status: "failed", error: message.slice(0, 1000) },
+      document: {
+        ...document,
+        status: "failed",
+        error: message.slice(0, 1000),
+        local_retrieval_status: localIndex.status,
+        local_chunk_count: localIndex.chunkCount,
+      },
     };
   }
 }
@@ -153,7 +217,7 @@ export async function refreshKnowledgeDocumentStatus(organizationId: string, doc
   const db = createAdminClient();
   const { data: doc, error } = await db
     .from("knowledge_documents")
-    .select("id,status,provider_vector_store_file_id")
+    .select("id,status,provider,provider_vector_store_file_id,local_retrieval_status,local_chunk_count,local_indexed_at,error")
     .eq("organization_id", organizationId)
     .eq("id", documentId)
     .maybeSingle();
@@ -171,6 +235,10 @@ export async function refreshKnowledgeDocumentStatus(organizationId: string, doc
   const result = await getVectorStoreFileStatus(kb.external_vector_store_id, doc.provider_vector_store_file_id);
   const status = result.status === "completed" ? "ready" : result.status === "failed" || result.status === "cancelled" ? "failed" : "indexing";
   const errorText = result.last_error ? JSON.stringify(result.last_error).slice(0, 1000) : null;
-  await db.from("knowledge_documents").update({ status, error: errorText, updated_at: new Date().toISOString() }).eq("id", documentId).eq("organization_id", organizationId);
+  await db.from("knowledge_documents").update({
+    status,
+    error: errorText,
+    updated_at: new Date().toISOString(),
+  }).eq("id", documentId).eq("organization_id", organizationId);
   return { ...doc, status, error: errorText };
 }
