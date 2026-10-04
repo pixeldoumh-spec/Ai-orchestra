@@ -1,7 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type {
   ModelAdapter,
-  ModelCitation,
   ModelCompleteInput,
   ModelFunctionCall,
   ModelResult,
@@ -215,7 +214,6 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
     const tools = normalizeTools(input.tools);
     if (tools.length > 0) request.tools = tools;
 
-    const startedAt = Date.now();
     try {
       const result = await Promise.race([
         ai.run(model, request, { rejectIfBusy: true }),
@@ -257,6 +255,9 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
         resourceUsage: {
           unit: "neurons",
           estimated: estimateNeurons(model, usage.inputTokens, usage.outputTokens),
+          actual: typeof (response.usage as Record<string, unknown> | undefined)?.neurons === "number"
+            ? Number((response.usage as Record<string, unknown>).neurons)
+            : null,
         },
         responseId: typeof response.id === "string" ? response.id : undefined,
         responseItems: output,
@@ -271,8 +272,6 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
         throw new Error("Cloudflare Workers AI capacity temporarily unavailable");
       }
       throw new Error(responseErrorMessage(error));
-    } finally {
-      void startedAt;
     }
   }
 }
