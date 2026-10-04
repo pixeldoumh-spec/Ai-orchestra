@@ -3,6 +3,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type Db = SupabaseClient;
 
+export function getErrorStatus(error: unknown): number {
+  if (error && typeof error === "object" && "status" in error) {
+    const status = (error as { status?: unknown }).status;
+    if (typeof status === "number" && status >= 100 && status <= 599) return status;
+  }
+  return 500;
+}
+
 export async function requireUser(): Promise<{ db: Db; user: { id: string; email?: string } }> {
   const db = await createClient();
   const { data, error } = await db.auth.getUser();
