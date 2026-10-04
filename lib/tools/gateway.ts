@@ -7,6 +7,7 @@ import { acknowledgeNetworkMessage, claimNetworkMessages, sendAgentMessage } fro
 import { delegateToAgent } from "@/lib/network/delegation";
 import { createEvidencePacket } from "@/lib/evidence/repository";
 import { sanitizeConnectorUrl, sanitizeConnectorText } from "@/lib/connectors/safety";
+import { retrieveKnowledge } from "@/lib/knowledge/memory";
 
 export const builtinTools: ToolDefinition[] = [
   { id: "time.now", name: "Current time", description: "Returns server time in ISO format.", permission: "time.read", risk: "low" },
@@ -16,6 +17,7 @@ export const builtinTools: ToolDefinition[] = [
   { id: "agent.message.receive", name: "Receive agent messages", description: "Claim queued messages from this agent's durable inbox.", permission: "network.receive", risk: "low" },
   { id: "agent.message.ack", name: "Acknowledge agent message", description: "Acknowledge or fail a delivered peer message.", permission: "network.ack", risk: "low" },
   { id: "agent.delegate", name: "Delegate work to agent", description: "Autonomously delegate bounded work to a trusted peer agent and receive a signed response.", permission: "network.delegate", risk: "medium" },
+  { id: "knowledge.search", name: "Search workspace knowledge", description: "Retrieve tenant-bound workspace documents and memories relevant to the current task.", permission: "knowledge.read", risk: "low" },
   { id: "external.action", name: "External action", description: "Prepare an external side effect through the signed connector and approval pipeline.", permission: "external.execute", risk: "high" },
 ];
 
@@ -75,6 +77,15 @@ const modelParameters: Record<string, Record<string, unknown>> = {
       maxCostCents: { type: "integer" },
     },
     required: ["recipientAgentId", "objective", "context", "scope", "ttlSeconds", "priority", "maxCostCents"],
+    additionalProperties: false,
+  },
+  "knowledge.search": {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Search query." },
+      limit: { type: "integer" },
+    },
+    required: ["query", "limit"],
     additionalProperties: false,
   },
   "agent.message.receive": {
@@ -380,6 +391,39 @@ export async function invokeTool(agent: AgentDefinition, taskId: string, invocat
       maxCostCents: typeof input?.maxCostCents === "number" ? input.maxCostCents : undefined,
     });
     const result = { output: delegated, approved: true };
+    await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "executed", result });
+    return result;
+  }
+
+  if (tool.id === "knowledge.search") {
+    const input = invocation.input as { query?: unknown; limit?: unknown } | null;
+    const query = String(input?.query ?? "").trim();
+    if (!query) throw new Error("knowledge.search requires a query");
+    const results = await retrieveKnowledge({
+      organizationId: agent.organizationId,
+      userId: "__workspace_agent__",
+      query,
+      limit: typeof input?.limit === "number" ? input.limit : 8,
+      workspaceOnly: true,
+    });
+    const result = {
+      output: {
+        query,
+        results: results.map((row: any) => ({
+          id: row.id,
+          sourceType: row.source_type,
+          documentId: row.document_id,
+          memoryId: row.memory_id,
+          filename: row.filename,
+          kind: row.kind,
+          content: row.content,
+          sourceRef: row.source_ref,
+          confidence: row.confidence,
+          score: row.score,
+        })),
+      },
+      approved: true,
+    };
     await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "executed", result });
     return result;
   }
