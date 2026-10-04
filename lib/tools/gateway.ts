@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareConnectorRequest, recordToolInvocation, updateConnectorRequestStatus } from "@/lib/connectors/repository";
 import { decryptSecret, hashJson } from "@/lib/vault/crypto";
 import { acknowledgeNetworkMessage, claimNetworkMessages, sendAgentMessage } from "@/lib/network/repository";
+import { createEvidencePacket } from "@/lib/evidence/repository";
 
 export const builtinTools: ToolDefinition[] = [
   { id: "time.now", name: "Current time", description: "Returns server time in ISO format.", permission: "time.read", risk: "low" },
@@ -142,7 +143,7 @@ async function executeConnectorRead(input: {
   const db = createAdminClient();
   const { data: connector } = await db
     .from("connectors")
-    .select("id,base_url,auth_scheme")
+    .select("id,name,base_url,auth_scheme")
     .eq("organization_id", organizationId)
     .eq("id", route.connector_id)
     .single();
@@ -239,9 +240,27 @@ async function executeConnectorRead(input: {
       p_now: new Date().toISOString(),
     });
 
+    const evidence = await createEvidencePacket({
+      organizationId,
+      taskId,
+      stepId,
+      agentId: agent.id,
+      sourceType: "connector",
+      sourceTitle: typeof connector.name === "string" ? connector.name : undefined,
+      sourceUrl: target.toString(),
+      connectorId: connector.id,
+      externalRef: route.request_id,
+      contentHash: fingerprint,
+      metadata: {
+        http_status: response.status,
+        content_type: response.headers.get("content-type"),
+        truncated: body.length > 50_000,
+      },
+    });
     await updateConnectorRequestStatus(route.id, "executed");
     return {
       output: {
+        evidencePacketId: evidence.id,
         status: response.status,
         ok: response.ok,
         contentType: response.headers.get("content-type"),
