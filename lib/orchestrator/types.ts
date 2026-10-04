@@ -4,6 +4,7 @@ import type { WorkflowPlan } from "@/lib/core/workflow";
 export type AgentStatus = "healthy" | "degraded" | "offline";
 export type TaskStatus = "queued" | "running" | "awaiting_approval" | "verified" | "failed" | "cancelled";
 export type StepStatus = TaskStatus;
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 
 export interface AgentDefinition {
   id: string;
@@ -50,16 +51,52 @@ export interface AgentContext {
   availableTools: ToolDefinition[];
 }
 
+export interface ModelTool {
+  type: "function";
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  strict: true;
+}
+
+export interface ModelFunctionCall {
+  callId: string;
+  name: string;
+  arguments: string;
+}
+
+export interface ModelOutputSchema {
+  name: string;
+  schema: Record<string, unknown>;
+}
+
+export interface ModelCompleteInput {
+  system: string;
+  user?: string;
+  inputItems?: unknown[];
+  model?: string | null;
+  tools?: ModelTool[];
+  outputSchema?: ModelOutputSchema | null;
+  reasoningEffort?: ReasoningEffort | null;
+  verbosity?: "low" | "medium" | "high" | null;
+}
+
 export interface ModelResult {
   output: unknown;
+  outputText: string;
   inputTokens: number;
+  cachedInputTokens: number;
   outputTokens: number;
   usageCents: number;
-  raw?: unknown;
+  responseId?: string;
+  responseItems?: unknown[];
+  functionCalls?: ModelFunctionCall[];
+  model?: string;
+  status?: string;
 }
 
 export interface ModelAdapter {
-  complete(input: { system: string; user: string; model?: string | null }): Promise<ModelResult>;
+  complete(input: ModelCompleteInput): Promise<ModelResult>;
 }
 
 export interface PersistedStep {
