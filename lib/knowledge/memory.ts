@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { indexMemoryForRetrieval, retrieveWorkspaceKnowledge } from "./retrieval";
 
 const MAX_CONTENT = 12000;
 const MAX_RESULTS = 50;
 
 function hash(value: string) {
-  return createHash("sha256").update(value).digest("hex");
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function normalize(value: string) {
@@ -40,7 +41,7 @@ export async function createMemory(input: {
     .eq("organization_id", input.organizationId)
     .eq("content_sha256", contentSha256)
     .neq("status", "deleted")
-    .or(`user_id.eq.${input.userId},user_id.is.null`)
+    .or(input.visibility === "private" ? `user_id.eq.${input.userId}` : "user_id.is.null")
     .maybeSingle();
   if (duplicateError) throw new Error(duplicateError.message);
   if (existing) return { duplicate: true, memory: existing };
@@ -64,7 +65,19 @@ export async function createMemory(input: {
     .select("id,kind,visibility,content,source_type,source_ref,confidence,importance,created_at")
     .single();
   if (error) throw new Error(error.message);
-  return { duplicate: false, memory: data };
+
+  let retrievalReady = true;
+  try {
+    await indexMemoryForRetrieval({
+      organizationId: input.organizationId,
+      memoryId: data.id,
+      content,
+    });
+  } catch {
+    retrievalReady = false;
+  }
+
+  return { duplicate: false, memory: data, retrievalReady };
 }
 
 export async function listMemories(organizationId: string, userId: string) {
@@ -81,18 +94,33 @@ export async function listMemories(organizationId: string, userId: string) {
   return data ?? [];
 }
 
-export async function retrieveMemories(organizationId: string, userId: string, query: string, limit = 8) {
-  const normalized = normalize(query);
+export async function retrieveKnowledge(input: {
+  organizationId: string;
+  userId: string;
+  query: string;
+  limit?: number;
+  workspaceOnly?: boolean;
+}) {
+  const normalized = normalize(input.query);
   if (!normalized) return [];
-  const db = createAdminClient();
-  const { data, error } = await db.rpc("search_workspace_memory", {
-    p_organization_id: organizationId,
-    p_user_id: userId,
-    p_query: normalized,
-    p_limit: Math.max(1, Math.min(MAX_RESULTS, limit)),
+  return retrieveWorkspaceKnowledge({
+    organizationId: input.organizationId,
+    userId: input.userId,
+    query: normalized,
+    limit: Math.max(1, Math.min(MAX_RESULTS, input.limit ?? 8)),
+    workspaceOnly: input.workspaceOnly ?? false,
   });
-  if (error) throw new Error(error.message);
-  return data ?? [];
+}
+
+export async function retrieveMemories(organizationId: string, userId: string, query: string, limit = 8) {
+  const results = await retrieveKnowledge({
+    organizationId,
+    userId,
+    query,
+    limit,
+    workspaceOnly: false,
+  });
+  return results.filter((row: any) => row.source_type === "memory");
 }
 
 export async function softDeleteMemory(organizationId: string, userId: string, memoryId: string) {
