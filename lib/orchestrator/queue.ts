@@ -4,7 +4,13 @@ type QueueBinding = {
   send(body: unknown): Promise<unknown>;
 };
 
-function getTaskQueue(): QueueBinding {
+function getTaskQueue(runtimeEnv?: unknown): QueueBinding {
+  if (runtimeEnv && typeof runtimeEnv === "object") {
+    const queue = (runtimeEnv as { TASK_QUEUE?: unknown }).TASK_QUEUE;
+    if (queue && typeof queue === "object" && typeof (queue as { send?: unknown }).send === "function") {
+      return queue as QueueBinding;
+    }
+  }
   const context = getCloudflareContext();
   const queue = (context.env as { TASK_QUEUE?: unknown }).TASK_QUEUE;
   if (!queue || typeof queue !== "object" || typeof (queue as { send?: unknown }).send !== "function") {
@@ -31,7 +37,7 @@ export async function enqueueTask(input: {
     reason: input.reason ?? "user_start",
     enqueuedAt: new Date().toISOString(),
   };
-  const queue = getTaskQueue();
+  const queue = getTaskQueue(input.runtimeEnv);
   await queue.send(payload);
   return { dispatchId };
 }
