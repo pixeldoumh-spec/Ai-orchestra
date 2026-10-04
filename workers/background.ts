@@ -41,7 +41,7 @@ async function callOrchestrator(env: Env, path: string, body: unknown) {
 }
 
 export default {
-  async queue(batch: { messages: QueueMessage[] }) {
+  async queue(batch: { messages: QueueMessage[] }, env: Env) {
     for (const message of batch.messages) {
       const body = message.body ?? {};
       if (!body.taskId || !body.organizationId || !body.dispatchId) {
