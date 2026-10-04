@@ -1,5 +1,6 @@
 import type {
   ModelAdapter,
+  ModelCitation,
   ModelCompleteInput,
   ModelFunctionCall,
   ModelResult,
@@ -83,6 +84,47 @@ function extractOutputText(output: unknown): string {
     }
   }
   return parts.join("\n");
+}
+
+function extractCitations(output: unknown): ModelCitation[] {
+  if (!Array.isArray(output)) return [];
+  const citations: ModelCitation[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as { type?: unknown; content?: unknown };
+    if (candidate.type !== "message" || !Array.isArray(candidate.content)) continue;
+    for (const part of candidate.content) {
+      if (!part || typeof part !== "object") continue;
+      const contentPart = part as { annotations?: unknown };
+      if (!Array.isArray(contentPart.annotations)) continue;
+      for (const annotation of contentPart.annotations) {
+        if (!annotation || typeof annotation !== "object") continue;
+        const a = annotation as {
+          type?: unknown;
+          url_citation?: { url?: unknown; title?: unknown; start_index?: unknown; end_index?: unknown };
+          file_citation?: { file_id?: unknown; filename?: unknown; index?: unknown };
+        };
+        if (a.type === "url_citation" && a.url_citation?.url) {
+          citations.push({
+            kind: "url",
+            url: String(a.url_citation.url),
+            title: typeof a.url_citation.title === "string" ? a.url_citation.title : undefined,
+            startIndex: Number.isFinite(Number(a.url_citation.start_index)) ? Number(a.url_citation.start_index) : undefined,
+            endIndex: Number.isFinite(Number(a.url_citation.end_index)) ? Number(a.url_citation.end_index) : undefined,
+          });
+        }
+        if (a.type === "file_citation" && a.file_citation?.file_id) {
+          citations.push({
+            kind: "file",
+            fileId: String(a.file_citation.file_id),
+            filename: typeof a.file_citation.filename === "string" ? a.file_citation.filename : undefined,
+            startIndex: Number.isFinite(Number(a.file_citation.index)) ? Number(a.file_citation.index) : undefined,
+          });
+        }
+      }
+    }
+  }
+  return citations;
 }
 
 function extractFunctionCalls(output: unknown): ModelFunctionCall[] {
@@ -187,6 +229,9 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
       };
 
       if (input.tools && input.tools.length > 0) body.tools = input.tools;
+      if (input.tools?.some((tool) => tool.type === "file_search")) {
+        body.include = ["file_search_call.results"];
+      }
 
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -216,6 +261,7 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
           ? responseBody.output_text
           : extractOutputText(output);
       const functionCalls = extractFunctionCalls(output);
+      const citations = extractCitations(output);
       const inputTokens = Number(responseBody?.usage?.input_tokens ?? 0);
       const cachedInputTokens = Number(
         responseBody?.usage?.input_tokens_details?.cached_tokens ??

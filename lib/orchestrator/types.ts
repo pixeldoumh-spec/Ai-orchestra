@@ -51,7 +51,7 @@ export interface AgentContext {
   availableTools: ToolDefinition[];
 }
 
-export interface ModelTool {
+export interface FunctionModelTool {
   type: "function";
   name: string;
   description: string;
@@ -59,10 +59,33 @@ export interface ModelTool {
   strict: true;
 }
 
+export interface WebSearchModelTool {
+  type: "web_search";
+  search_context_size?: "low" | "medium" | "high";
+}
+
+export interface FileSearchModelTool {
+  type: "file_search";
+  vector_store_ids: string[];
+  max_num_results?: number;
+}
+
+export type ModelTool = FunctionModelTool | WebSearchModelTool | FileSearchModelTool;
+
 export interface ModelFunctionCall {
   callId: string;
   name: string;
   arguments: string;
+}
+
+export interface ModelCitation {
+  kind: "url" | "file";
+  url?: string;
+  title?: string;
+  fileId?: string;
+  filename?: string;
+  startIndex?: number;
+  endIndex?: number;
 }
 
 export interface ModelOutputSchema {
@@ -91,6 +114,7 @@ export interface ModelResult {
   responseId?: string;
   responseItems?: unknown[];
   functionCalls?: ModelFunctionCall[];
+  citations?: ModelCitation[];
   model?: string;
   status?: string;
 }
