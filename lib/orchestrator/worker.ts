@@ -188,9 +188,17 @@ export async function processTask(taskId: string, organizationId: string, worker
     return { claimed: true, task: await getTask(taskId, organizationId) };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown worker error";
-    await appendEvent(taskId, organizationId, "task.worker_error", { message });
-    await updateTask(taskId, { status: "failed", error: message, completed_at: new Date().toISOString(), lease_owner: null, lease_until: null });
-    return { claimed: true, task: await getTask(taskId, organizationId) };
+    const retryAt = new Date(Date.now() + Math.min(60_000, Math.max(5_000, Number(process.env.WORKER_ERROR_RETRY_MS ?? "30000")))).toISOString();
+    await appendEvent(taskId, organizationId, "task.worker_error", { message, retryAt });
+    await updateTask(taskId, {
+      status: "queued",
+      error: message,
+      run_after: retryAt,
+      completed_at: null,
+      lease_owner: null,
+      lease_until: null,
+    });
+    return { claimed: true, workerError: true, task: await getTask(taskId, organizationId) };
   } finally {
     await db.from("tasks").update({ lease_owner: null, lease_until: null }).eq("id", taskId).eq("lease_owner", workerId);
   }
