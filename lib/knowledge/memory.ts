@@ -135,6 +135,7 @@ export async function softDeleteMemory(organizationId: string, userId: string, m
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Memory not found or not accessible");
+  await db.from("knowledge_chunks").delete().eq("organization_id", organizationId).eq("memory_id", memoryId);
   return data;
 }
 
