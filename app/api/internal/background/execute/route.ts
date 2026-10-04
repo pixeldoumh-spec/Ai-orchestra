@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       const task = result.task ?? await getTask(taskId, organizationId);
       await finishBackgroundWorkerRun({
         id: run.id,
-        status: result.claimed ? "completed" : "skipped",
+        status: result.workerError ? "failed" : result.claimed ? "completed" : "skipped",
         startedAt: run.startedAt,
         metadata: {
           dispatchId,
@@ -45,6 +45,12 @@ export async function POST(request: Request) {
           taskStatus: task?.status ?? null,
         },
       });
+      if (result.workerError) {
+        return NextResponse.json(
+          { ok: false, retryable: true, task, claimed: result.claimed },
+          { status: 503 },
+        );
+      }
       return NextResponse.json({ ok: true, task, claimed: result.claimed });
     } catch (error) {
       await finishBackgroundWorkerRun({
