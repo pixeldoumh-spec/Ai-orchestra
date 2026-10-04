@@ -12,10 +12,10 @@ export function sanitizeConnectorUrl(raw: string): string {
   }
 }
 
-export function sanitizeConnectorText(value: string): string {
+export function sanitizeConnectorText(value: string, maxChars = 4000): string {
   return value
     .replace(/(authorization\s*:\s*bearer\s+)[^\s,;]+/gi, "$1[redacted]")
     .replace(/(x-api-key\s*:\s*)[^\s,;]+/gi, "$1[redacted]")
     .replace(/(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|password|secret)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, "$1[redacted]$2")
-    .slice(0, 4000);
+    .slice(0, Math.max(256, Math.min(50000, maxChars)));
 }
