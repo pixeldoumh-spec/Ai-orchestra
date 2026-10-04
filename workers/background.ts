@@ -40,7 +40,7 @@ async function callOrchestrator(env: Env, path: string, body: unknown) {
   });
 }
 
-export default {
+const backgroundWorker = {
   async queue(batch: { messages: QueueMessage[] }, env: Env) {
     for (const message of batch.messages) {
       const body = message.body ?? {};
@@ -64,7 +64,7 @@ export default {
       }
     }
   },
-  async scheduled(_event: ScheduledEvent, env: Env) {
+  async scheduled(_event: { cron?: string }, env: Env) {
     try {
       await callOrchestrator(env, "/api/internal/background/dispatch", {
         trigger: "cron",
@@ -74,4 +74,6 @@ export default {
       // The queue will self-heal the next minute.
     }
   },
-} satisfies ExportedHandler<Env>;
+};
+
+export default backgroundWorker;
