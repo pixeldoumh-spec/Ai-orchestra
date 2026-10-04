@@ -186,7 +186,17 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
         },
       };
 
-      if (input.tools && input.tools.length > 0) body.tools = input.tools;
+      const builtInTools: unknown[] = [];
+      if (input.webSearch) builtInTools.push({ type: "web_search" });
+      if (input.fileSearchVectorStoreIds?.length) {
+        builtInTools.push({
+          type: "file_search",
+          vector_store_ids: input.fileSearchVectorStoreIds.slice(0, 8),
+        });
+      }
+      if (builtInTools.length || input.tools?.length) {
+        body.tools = [...builtInTools, ...(input.tools ?? [])];
+      }
 
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
