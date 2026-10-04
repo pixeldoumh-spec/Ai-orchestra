@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareConnectorRequest, recordToolInvocation, updateConnectorRequestStatus } from "@/lib/connectors/repository";
 import { decryptSecret, hashJson } from "@/lib/vault/crypto";
 import { acknowledgeNetworkMessage, claimNetworkMessages, sendAgentMessage } from "@/lib/network/repository";
+import { delegateToAgent } from "@/lib/network/delegation";
 import { createEvidencePacket } from "@/lib/evidence/repository";
 import { sanitizeConnectorUrl, sanitizeConnectorText } from "@/lib/connectors/safety";
 
@@ -14,6 +15,7 @@ export const builtinTools: ToolDefinition[] = [
   { id: "agent.message.send", name: "Send agent message", description: "Send a signed message to a trusted peer agent.", permission: "network.send", risk: "medium" },
   { id: "agent.message.receive", name: "Receive agent messages", description: "Claim queued messages from this agent's durable inbox.", permission: "network.receive", risk: "low" },
   { id: "agent.message.ack", name: "Acknowledge agent message", description: "Acknowledge or fail a delivered peer message.", permission: "network.ack", risk: "low" },
+  { id: "agent.delegate", name: "Delegate work to agent", description: "Autonomously delegate bounded work to a trusted peer agent and receive a signed response.", permission: "network.delegate", risk: "medium" },
   { id: "external.action", name: "External action", description: "Prepare an external side effect through the signed connector and approval pipeline.", permission: "external.execute", risk: "high" },
 ];
 
@@ -59,6 +61,20 @@ const modelParameters: Record<string, Record<string, unknown>> = {
       priority: { type: "integer" },
     },
     required: ["recipientAgentId", "subject", "payload", "scope", "kind", "conversationId", "correlationId", "replyToMessageId", "ttlSeconds", "priority"],
+    additionalProperties: false,
+  },
+  "agent.delegate": {
+    type: "object",
+    properties: {
+      recipientAgentId: { type: "string" },
+      objective: { type: "string", description: "The bounded objective the peer must complete." },
+      context: { type: "object", description: "Optional structured context supplied as untrusted task data.", additionalProperties: true },
+      scope: { type: "string" },
+      ttlSeconds: { type: "integer" },
+      priority: { type: "integer" },
+      maxCostCents: { type: "integer" },
+    },
+    required: ["recipientAgentId", "objective", "context", "scope", "ttlSeconds", "priority", "maxCostCents"],
     additionalProperties: false,
   },
   "agent.message.receive": {
@@ -341,6 +357,29 @@ export async function invokeTool(agent: AgentDefinition, taskId: string, invocat
       priority: typeof input?.priority === "number" ? input.priority : undefined,
     });
     const result = { output: { sent: true, messageId: message.messageId, recipientAgentId: message.recipientAgentId, conversationId: message.conversationId, status: message.status }, approved: true };
+    await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "executed", result });
+    return result;
+  }
+
+  if (tool.id === "agent.delegate") {
+    const input = invocation.input as { recipientAgentId?: unknown; objective?: unknown; context?: unknown; scope?: unknown; ttlSeconds?: unknown; priority?: unknown; maxCostCents?: unknown } | null;
+    const recipientAgentId = String(input?.recipientAgentId ?? "").trim();
+    const objective = String(input?.objective ?? "").trim();
+    if (!recipientAgentId || objective.length < 5) throw new Error("agent.delegate requires recipientAgentId and a useful objective");
+    const delegated = await delegateToAgent({
+      organizationId: agent.organizationId,
+      taskId,
+      stepId,
+      senderAgent: agent,
+      recipientAgentId,
+      objective: objective.slice(0, 4000),
+      context: input?.context ?? null,
+      scope: typeof input?.scope === "string" ? input.scope : undefined,
+      ttlSeconds: typeof input?.ttlSeconds === "number" ? input.ttlSeconds : undefined,
+      priority: typeof input?.priority === "number" ? input.priority : undefined,
+      maxCostCents: typeof input?.maxCostCents === "number" ? input.maxCostCents : undefined,
+    });
+    const result = { output: delegated, approved: true };
     await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "executed", result });
     return result;
   }
