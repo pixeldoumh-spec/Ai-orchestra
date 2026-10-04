@@ -56,11 +56,20 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
               .order("id", { ascending: true })
               .limit(100);
             if (error) throw new Error(error.message);
+            let emitted = false;
             for (const event of data ?? []) {
               lastId = Number(event.id);
+              emitted = true;
               controller.enqueue(encoder.encode(encodeEvent(event.id, {
                 type: "event",
                 event,
+              })));
+            }
+            if (emitted) {
+              const refreshed = await getTask(taskId, org.id);
+              controller.enqueue(encoder.encode(encodeEvent(lastId, {
+                type: "snapshot",
+                task: refreshed,
               })));
             }
             const latest = await getTask(taskId, org.id);
