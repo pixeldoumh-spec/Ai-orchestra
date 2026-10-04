@@ -1,4 +1,4 @@
-# Architecture · V6.2
+# Architecture · V6.4
 
 ## V5 enterprise layer
 
@@ -45,3 +45,16 @@ The runtime now treats Research, Analysis, Writer and Verifier as explicit execu
 Research is evidence-first and reports unknowns/conflicts. Analysis reasons over supplied evidence and separates observation from inference. Writer produces the user-facing deliverable without inventing new facts. Verifier independently audits terminal work and must return a strict passing verification object before finalization.
 
 Step failures use bounded exponential backoff with jitter and durable retry events. Exhausted retries enter the existing bounded replanning path; verifier rejection follows the same failure/retry/replan semantics. No hidden chain-of-thought is persisted.
+
+
+## V6.4 agent-to-agent network
+
+The network is a tenant-scoped delegation and coordination plane, not a second execution authority. An agent can request bounded work through the `agent.delegate` tool, but delivery still requires an active source→target trust edge and organization network policy approval.
+
+Network envelopes use protocol v2 and sign the full lineage: organization, sender, recipient, conversation, correlation id, reply target, root message, task/step binding, delegation depth, hop count, scope, payload hash, timestamps and nonce. Payloads are encrypted at rest. Every response is required to reference the prior request/delegation and preserve task lineage.
+
+Organization policy bounds whether the network is enabled, whether autonomous delegation is allowed, permitted message types/scopes, payload size, TTL, delegation depth, hop count and aggregate rate. The database admission trigger repeats these checks so application code cannot bypass policy through the service-role path.
+
+Delegations are durable network messages. The sender emits a signed `delegation` message, the recipient is atomically claimed through a database RPC, the delegated specialist executes with a bounded prompt and no inherited hidden authority, and a signed `response` message is emitted using the original correlation and reply chain. Success/failure is acknowledged on the original message and task events capture the delegation lifecycle.
+
+V6.4 deliberately keeps delegated execution bounded to the target agent's declared model and budget. Nested tool execution is not inherited by the delegated worker, preventing recursive delegation/tool amplification. Existing connector approvals, enterprise admission, task budgets and independent verification remain authoritative.
