@@ -9,7 +9,13 @@ const DIMENSIONS = 768;
 const MAX_INPUT_CHARS = 1800;
 const BATCH_SIZE = 32;
 
-function getWorkersAI(): WorkersAI {
+function getWorkersAI(runtimeEnv?: unknown): WorkersAI {
+  const direct = runtimeEnv && typeof runtimeEnv === "object"
+    ? (runtimeEnv as { AI?: unknown }).AI
+    : undefined;
+  if (direct && typeof direct === "object" && typeof (direct as { run?: unknown }).run === "function") {
+    return direct as WorkersAI;
+  }
   const context = getCloudflareContext();
   const ai = (context.env as { AI?: unknown }).AI;
   if (!ai || typeof ai !== "object" || typeof (ai as { run?: unknown }).run !== "function") {
@@ -33,10 +39,10 @@ export function vectorLiteral(values: number[]) {
   return "[" + values.map((value) => Number(value).toString()).join(",") + "]";
 }
 
-export async function embedTexts(values: string[]): Promise<number[][]> {
+export async function embedTexts(values: string[], runtimeEnv?: unknown): Promise<number[][]> {
   const cleaned = values.map((value) => normalizeText(value).slice(0, MAX_INPUT_CHARS)).filter(Boolean);
   if (cleaned.length === 0) return [];
-  const ai = getWorkersAI();
+  const ai = getWorkersAI(runtimeEnv);
   const results: number[][] = [];
   for (let index = 0; index < cleaned.length; index += BATCH_SIZE) {
     const batch = cleaned.slice(index, index + BATCH_SIZE);
@@ -52,8 +58,8 @@ export async function embedTexts(values: string[]): Promise<number[][]> {
   return results;
 }
 
-export async function embedText(value: string) {
-  const [embedding] = await embedTexts([value]);
+export async function embedText(value: string, runtimeEnv?: unknown) {
+  const [embedding] = await embedTexts([value], runtimeEnv);
   if (!embedding) throw new Error("Workers AI returned no embedding");
   return embedding;
 }
