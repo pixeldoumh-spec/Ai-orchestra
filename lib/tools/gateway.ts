@@ -2,11 +2,12 @@ import type { AgentDefinition, ModelTool, ToolDefinition, ToolInvocation, ToolRe
 import { canUsePermission, requiresApproval } from "@/lib/core/policy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareConnectorRequest, recordToolInvocation } from "@/lib/connectors/repository";
-import { hashJson } from "@/lib/vault/crypto";
+import { decryptSecret, hashJson } from "@/lib/vault/crypto";
 import { acknowledgeNetworkMessage, claimNetworkMessages, sendAgentMessage } from "@/lib/network/repository";
 
 export const builtinTools: ToolDefinition[] = [
   { id: "time.now", name: "Current time", description: "Returns server time in ISO format.", permission: "time.read", risk: "low" },
+  { id: "connector.http.get", name: "Connector HTTP GET", description: "Reads a resource from an explicitly configured tenant connector using the connector route and stored credential.", permission: "connector.read", risk: "low" },
   { id: "artifact.write", name: "Write artifact", description: "Persists a bounded task artifact.", permission: "artifact.write", risk: "medium" },
   { id: "agent.message.send", name: "Send agent message", description: "Send a signed message to a trusted peer agent.", permission: "network.send", risk: "medium" },
   { id: "agent.message.receive", name: "Receive agent messages", description: "Claim queued messages from this agent's durable inbox.", permission: "network.receive", risk: "low" },
@@ -21,6 +22,15 @@ const modelParameters: Record<string, Record<string, unknown>> = {
     type: "object",
     properties: {},
     required: [],
+    additionalProperties: false,
+  },
+  "connector.http.get": {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Relative HTTPS path beginning with / on the configured connector." },
+      query: { type: "object", description: "Optional query parameters.", additionalProperties: { type: "string" } },
+    },
+    required: ["path", "query"],
     additionalProperties: false,
   },
   "artifact.write": {
@@ -99,6 +109,169 @@ export function resolveModelToolId(name: string): string | null {
   return tool?.id ?? null;
 }
 
+async function executeConnectorRead(input: {
+  organizationId: string;
+  taskId: string;
+  stepId: string;
+  agent: AgentDefinition;
+  path: string;
+  query: Record<string, unknown>;
+}): Promise<ToolResult & { connectorRequestId?: string | null }> {
+  const {
+    organizationId,
+    taskId,
+    stepId,
+    agent,
+    path,
+    query,
+  } = input;
+
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\..") || path.includes("/../") || path.includes("/./")) {
+    throw new Error("Connector path must be a normalized relative path beginning with /");
+  }
+  if (path.length > 2000) throw new Error("Connector path is too long");
+
+  const route = await prepareConnectorRequest({
+    organizationId,
+    taskId,
+    stepId,
+    agent,
+    toolInvocation: { toolId: "connector.http.get", input: { path, query } },
+  });
+
+  const db = createAdminClient();
+  const { data: connector } = await db
+    .from("connectors")
+    .select("id,base_url,auth_scheme")
+    .eq("organization_id", organizationId)
+    .eq("id", route.connector_id)
+    .single();
+  if (!connector?.base_url) throw new Error("Connector is missing an HTTPS base URL");
+
+  const base = new URL(connector.base_url);
+  const target = new URL(path, base);
+  if (target.origin !== base.origin) throw new Error("Connector request escaped the configured origin");
+
+  for (const [key, value] of Object.entries(query)) {
+    if (!/^[a-zA-Z0-9_.-]{1,120}$/.test(key)) throw new Error("Invalid connector query parameter name");
+    target.searchParams.set(key, String(value).slice(0, 500));
+  }
+
+  const headers = new Headers({ Accept: "application/json, text/plain;q=0.9, */*;q=0.1" });
+  if (connector.auth_scheme !== "none") {
+    if (!route.credential_id) throw new Error("Connector credential is required");
+    const { data: credential, error } = await db
+      .from("connector_credentials")
+      .select("secret_ciphertext,secret_iv,secret_auth_tag,key_version,auth_scheme,status,expires_at")
+      .eq("organization_id", organizationId)
+      .eq("connector_id", connector.id)
+      .eq("id", route.credential_id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!credential || credential.status !== "active") throw new Error("Connector credential is not active");
+    if (credential.expires_at && Date.parse(credential.expires_at) <= Date.now()) throw new Error("Connector credential has expired");
+    const secret = decryptSecret({
+      ciphertext: credential.secret_ciphertext,
+      iv: credential.secret_iv,
+      authTag: credential.secret_auth_tag,
+      keyVersion: Number(credential.key_version),
+    });
+    if (credential.auth_scheme === "bearer") headers.set("Authorization", `Bearer ${secret}`);
+    else if (credential.auth_scheme === "api_key") headers.set("X-API-Key", secret);
+    else throw new Error("HMAC connector authentication is not implemented for V6.2 read tools");
+  }
+
+  const started = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(30_000, Math.max(5_000, Number(process.env.CONNECTOR_READ_TIMEOUT_MS ?? "15000"))));
+
+  try {
+    const response = await fetch(target.toString(), {
+      method: "GET",
+      headers,
+      redirect: "error",
+      signal: controller.signal,
+    });
+
+    const declared = Number(response.headers.get("content-length") ?? "0");
+    const maxBytes = Math.min(524288, Math.max(16384, Number(process.env.CONNECTOR_READ_MAX_BYTES ?? "524288")));
+    if (declared > maxBytes) throw new Error("Connector response exceeds the 512 KiB read limit");
+
+    const reader = response.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    if (reader) {
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        const chunk = part.value;
+        total += chunk.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel();
+          throw new Error("Connector response exceeds the 512 KiB read limit");
+        }
+        chunks.push(chunk);
+      }
+    } else {
+      const buf = new Uint8Array(await response.arrayBuffer());
+      total = buf.byteLength;
+      if (total > maxBytes) throw new Error("Connector response exceeds the 512 KiB read limit");
+      chunks.push(buf);
+    }
+
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const body = new TextDecoder().decode(merged);
+    const fingerprint = hashJson({ url: target.toString(), status: response.status, body }).slice(0, 64);
+    const healthDb = createAdminClient();
+    await healthDb.rpc("record_connector_outcome", {
+      p_organization_id: organizationId,
+      p_connector_id: connector.id,
+      p_success: response.ok,
+      p_latency_ms: Date.now() - started,
+      p_http_status: response.status,
+      p_error_class: response.ok ? null : `http_${response.status}`,
+      p_source: "agent.connector.http.get",
+      p_now: new Date().toISOString(),
+    });
+
+    return {
+      output: {
+        status: response.status,
+        ok: response.ok,
+        contentType: response.headers.get("content-type"),
+        url: target.toString(),
+        body: body.slice(0, 50_000),
+        truncated: body.length > 50_000,
+        contentHash: fingerprint,
+      },
+      approved: true,
+      connectorId: connector.id,
+      connectorRequestId: route.request_id,
+    };
+  } catch (error) {
+    await createAdminClient().rpc("record_connector_outcome", {
+      p_organization_id: organizationId,
+      p_connector_id: connector.id,
+      p_success: false,
+      p_latency_ms: Date.now() - started,
+      p_http_status: null,
+      p_error_class: error instanceof Error ? error.message.slice(0, 120) : "connector_fetch_error",
+      p_source: "agent.connector.http.get",
+      p_now: new Date().toISOString(),
+    });
+    throw error instanceof Error && error.name === "AbortError"
+      ? new Error("Connector request timed out")
+      : error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function invokeTool(agent: AgentDefinition, taskId: string, invocation: ToolInvocation, stepId = "unknown"): Promise<ToolResult> {
   const tool = builtinTools.find((candidate) => candidate.id === invocation.toolId);
   if (!tool) throw new Error(`Unknown tool: ${invocation.toolId}`);
@@ -171,6 +344,22 @@ export async function invokeTool(agent: AgentDefinition, taskId: string, invocat
     });
     const result = { output: { acknowledged: true, messageId: message.messageId, status: message.status }, approved: true };
     await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "executed", result });
+    return result;
+  }
+
+  if (tool.id === "connector.http.get") {
+    const input = invocation.input as { path?: unknown; query?: unknown } | null;
+    const path = String(input?.path ?? "");
+    const query = input?.query && typeof input.query === "object" ? input.query as Record<string, unknown> : {};
+    const result = await executeConnectorRead({
+      organizationId: agent.organizationId,
+      taskId,
+      stepId,
+      agent,
+      path,
+      query,
+    });
+    await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "executed", connectorRequestId: result.connectorRequestId, result });
     return result;
   }
 
