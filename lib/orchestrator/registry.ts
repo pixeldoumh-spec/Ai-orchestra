@@ -36,6 +36,17 @@ export async function ensureDefaultAgents(organizationId: string): Promise<void>
     const { error: insertError } = await db.from("agents").insert(agents);
     if (insertError) throw new Error(insertError.message);
   }
+  for (const seed of agents) {
+    const { data: existing, error: existingError } = await db.from("agents").select("id,permissions,tools").eq("organization_id", organizationId).eq("id", seed.id).maybeSingle();
+    if (existingError) throw new Error(existingError.message);
+    if (!existing) continue;
+    const permissions = [...new Set([...(Array.isArray(existing.permissions) ? existing.permissions : []), ...seed.permissions])];
+    const tools = [...new Set([...(Array.isArray(existing.tools) ? existing.tools : []), ...seed.tools])];
+    if (permissions.length !== (Array.isArray(existing.permissions) ? existing.permissions.length : 0) || tools.length !== (Array.isArray(existing.tools) ? existing.tools.length : 0)) {
+      const { error: syncError } = await db.from("agents").update({ permissions, tools }).eq("organization_id", organizationId).eq("id", seed.id);
+      if (syncError) throw new Error(syncError.message);
+    }
+  }
   const { data: currentAgents, error: agentListError } = await db.from("agents").select("id").eq("organization_id", organizationId);
   if (agentListError) throw new Error(agentListError.message);
   await Promise.all((currentAgents ?? []).map((agent) => ensureAgentIdentity(organizationId, agent.id)));
