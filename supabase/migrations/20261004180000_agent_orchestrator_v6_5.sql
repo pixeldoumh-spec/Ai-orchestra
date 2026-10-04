@@ -127,7 +127,8 @@ create or replace function public.search_workspace_knowledge(
   p_organization_id uuid,
   p_user_id uuid,
   p_query_embedding vector(768),
-  p_limit integer default 8
+  p_limit integer default 8,
+  p_include_private boolean default false
 )
 returns table(
   id uuid,
@@ -162,7 +163,7 @@ set search_path=pg_catalog,public,auth,extensions as $$
       and(
         (c.memory_id is not null and m.status='active'
           and (m.expires_at is null or m.expires_at>now())
-          and (m.visibility='workspace' or m.user_id=p_user_id))
+          and (m.visibility='workspace' or (p_include_private and m.user_id=p_user_id)))
         or
         (c.document_id is not null and d.status not in('deleted','failed'))
       )
@@ -172,7 +173,7 @@ set search_path=pg_catalog,public,auth,extensions as $$
   order by score desc,importance desc,chunk_index asc
   limit greatest(1,least(coalesce(p_limit,8),50));
 $$;
-revoke all on function public.search_workspace_knowledge(uuid,uuid,vector,integer) from public,anon,authenticated;
+revoke all on function public.search_workspace_knowledge(uuid,uuid,vector,integer,boolean) from public,anon,authenticated;
 
 create or replace function public.search_workspace_memory(
   p_organization_id uuid,
@@ -199,5 +200,5 @@ $$;
 revoke all on function public.search_workspace_memory(uuid,uuid,text,integer) from public,anon,authenticated;
 
 comment on table public.knowledge_chunks is 'V6.5 tenant-bound semantic chunks. Payload belongs to exactly one workspace document or memory.';
-comment on function public.search_workspace_knowledge(uuid,uuid,vector,integer) is 'Server-only semantic workspace retrieval with explicit organization and private-memory owner boundaries.';
+comment on function public.search_workspace_knowledge(uuid,uuid,vector,integer,boolean) is 'Server-only semantic workspace retrieval with explicit organization and private-memory owner boundaries.';
 comment on function public.search_workspace_memory(uuid,uuid,text,integer) is 'Server-only lexical fallback memory retrieval with explicit organization and private-memory owner boundaries.';
