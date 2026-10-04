@@ -201,10 +201,10 @@ export async function executePreparedConnectorRequest(input: {
     .select("allow_external_actions,require_approval_for_external")
     .eq("organization_id", input.organizationId)
     .maybeSingle();
-  if (policy && policy.allow_external_actions !== true) {
+  if (!policy || policy.allow_external_actions !== true) {
     throw new Error("Organization policy currently disallows external actions");
   }
-  if (policy && policy.require_approval_for_external !== true) {
+  if (policy.require_approval_for_external !== true) {
     throw new Error("External action policy is inconsistent with the approval-gated execution path");
   }
 
