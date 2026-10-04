@@ -93,8 +93,13 @@ end; $$;
 drop trigger if exists agent_network_message_immutable_trigger on public.agent_network_messages;
 create trigger agent_network_message_immutable_trigger before update on public.agent_network_messages for each row execute function public.agent_network_message_immutable();
 
-create or replace function public.agent_network_event_immutable() returns trigger language plpgsql security invoker as $$
-begin raise exception 'Network event is append-only';end;$$;
+create or replace function public.agent_network_message_delete_guard() returns trigger language plpgsql security invoker as $
+begin raise exception 'Network messages are immutable and cannot be deleted';end;$;
+drop trigger if exists agent_network_message_delete_guard_trigger on public.agent_network_messages;
+create trigger agent_network_message_delete_guard_trigger before delete on public.agent_network_messages for each row execute function public.agent_network_message_delete_guard();
+
+create or replace function public.agent_network_event_immutable() returns trigger language plpgsql security invoker as $
+begin raise exception 'Network event is append-only';end;$;
 drop trigger if exists agent_network_event_immutable_trigger on public.agent_network_events;
 create trigger agent_network_event_immutable_trigger before update or delete on public.agent_network_events for each row execute function public.agent_network_event_immutable();
 
@@ -131,6 +136,7 @@ revoke execute on function public.agent_network_peer_admission() from public,ano
 revoke execute on function public.agent_network_message_admission() from public,anon,authenticated;
 revoke execute on function public.agent_network_message_immutable() from public,anon,authenticated;
 revoke execute on function public.agent_network_event_immutable() from public,anon,authenticated;
+revoke execute on function public.agent_network_message_delete_guard() from public,anon,authenticated;
 revoke execute on function public.record_agent_network_event() from public,anon,authenticated;
 comment on table public.agent_network_peers is 'Explicit same-org trust edges controlling agent-to-agent message kinds, scopes, payload and rate.';
 comment on table public.agent_network_messages is 'Signed agent messages with encrypted payloads, bounded TTL, replay-safe nonce and durable delivery state.';
