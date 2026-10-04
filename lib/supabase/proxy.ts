@@ -20,7 +20,8 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // This refreshes/validates the session without trusting client-controlled metadata.
-  await supabase.auth.getUser();
+  // Validate/refresh the session from the signed token. Supabase recommends
+  // getClaims() in Proxy instead of trusting getSession() or cookie contents.
+  await supabase.auth.getClaims();
   return response;
 }
