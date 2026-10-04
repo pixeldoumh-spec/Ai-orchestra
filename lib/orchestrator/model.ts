@@ -165,6 +165,17 @@ function extractCitations(output: unknown): ModelCitation[] {
   return citations;
 }
 
+function extractFunctionCalls(output: unknown): ModelFunctionCall[] {
+  if (!Array.isArray(output)) return [];
+  return output.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const candidate = item as { type?: unknown; call_id?: unknown; name?: unknown; arguments?: unknown };
+    if (candidate.type !== "function_call") return [];
+    if (typeof candidate.call_id !== "string" || typeof candidate.name !== "string" || typeof candidate.arguments !== "string") return [];
+    return [{ callId: candidate.call_id, name: candidate.name, arguments: candidate.arguments }];
+  });
+}
+
 function redactProviderError(status: number, body: unknown): Error {
   let message = `Model provider error (${status})`;
   if (status === 401) message = "Model provider authentication failed";
