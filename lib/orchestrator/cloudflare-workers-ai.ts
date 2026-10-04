@@ -425,7 +425,7 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
       };
     } catch (error) {
       const code = responseErrorCode(error);
-      if (code === 3036) dailyExhaustedUntil = endOfUtcDayMs();
+      if (code === 3036) dailyExhaustedUntilByModel.set(model, endOfUtcDayMs());
       if (code === 3040) {
         throw new Error("Cloudflare Workers AI capacity temporarily unavailable");
       }
