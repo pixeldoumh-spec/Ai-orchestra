@@ -156,6 +156,7 @@ export interface PersistedStep {
 
 export interface PersistedTask {
   id: string;
+  created_by?: string | null;
   organization_id: string;
   goal: string;
   status: TaskStatus;
