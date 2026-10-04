@@ -51,8 +51,7 @@
     "AI_FALLBACK_PROVIDER": "workers_ai",
     "AI_FALLBACK_MODEL": "@cf/qwen/qwen3.8-27b",
     "BACKGROUND_DISPATCH_LIMIT": "12",
-    "TASK_STREAM_MAX_MS": "240000",
-    "BACKGROUND_WORKER_SECRET": "set-as-secret"
+    "TASK_STREAM_MAX_MS": "240000"
   },
   "workers_dev": true,
   "preview_urls": false,
