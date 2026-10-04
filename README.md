@@ -1,4 +1,4 @@
-# AI Orchestra V6.3
+# AI Orchestra V6.5
 
 A provider-neutral AI control plane for planning, executing, verifying, protecting and governing multi-agent workflows.
 
@@ -152,3 +152,20 @@ AI Orchestra now has a governed agent-to-agent plane. Specialized agents can aut
 The network is protected by tenant policy, explicit source→target trust edges, Ed25519 signatures, encrypted payloads, TTLs, rate limits, delegation-depth and hop limits. Organization policy is enforced both in application code and PostgreSQL admission triggers.
 
 The live network surface is `/network`; policy administration is available to owner/admin roles. Autonomous delegation never inherits hidden authority or connector side effects from the parent agent, and final task verification remains mandatory.
+
+
+## V6.5 — Workspace Knowledge
+
+V6.5 turns the V6.2 document registry into a provider-aware workspace knowledge plane.
+
+- Documents remain tenant-owned and private in Supabase Storage.
+- Text-like documents are chunked locally and embedded through Cloudflare Workers AI (@cf/baai/bge-base-en-v1.5).
+- Durable workspace memories support facts, preferences, decisions, procedures and context, with optional user-private visibility.
+- Semantic retrieval searches document chunks and active memories through tenant-bound PostgreSQL vector search.
+- Private memories are never included in automatic agent grounding; manual retrieval can include only the authenticated user's private memories.
+- Every retrieval is scoped by organization at both the application layer and the database function.
+- Retrieval telemetry stores only a query hash and bounded result counts, not the raw query.
+- The native knowledge.search tool is permission-gated and uses the same tenant boundary.
+- The worker automatically grounds each task step with relevant workspace-only knowledge while treating stored content as untrusted data rather than instructions.
+
+Binary formats remain in the existing V6.2 provider retrieval path when OpenAI hosted file_search is selected. Under the production Workers AI path, locally indexable text, markup and source documents use the application-owned semantic retrieval plane.
