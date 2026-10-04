@@ -1,6 +1,6 @@
 {
   "name": "agent-orchestrator-v6",
-  "version": "0.6.0",
+  "version": "0.6.6",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -13,8 +13,9 @@
     "test:core": "npm run build:core && node --test tests/core.test.mjs",
     "build:core": "tsc -p tsconfig.core.json",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "build:cloudflare": "opennextjs-cloudflare build"
+    "deploy": "opennextjs-cloudflare build && npm run deploy:cloudflare",
+    "build:cloudflare": "opennextjs-cloudflare build",
+    "deploy:cloudflare": "npx wrangler deploy && npx wrangler deploy --config wrangler.background.jsonc"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
