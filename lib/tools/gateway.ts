@@ -1,7 +1,7 @@
 import type { AgentDefinition, ModelTool, ToolDefinition, ToolInvocation, ToolResult } from "@/lib/orchestrator/types";
 import { canUsePermission, requiresApproval } from "@/lib/core/policy";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { prepareConnectorRequest, recordToolInvocation } from "@/lib/connectors/repository";
+import { prepareConnectorRequest, recordToolInvocation, updateConnectorRequestStatus } from "@/lib/connectors/repository";
 import { decryptSecret, hashJson } from "@/lib/vault/crypto";
 import { acknowledgeNetworkMessage, claimNetworkMessages, sendAgentMessage } from "@/lib/network/repository";
 
@@ -239,6 +239,7 @@ async function executeConnectorRead(input: {
       p_now: new Date().toISOString(),
     });
 
+    await updateConnectorRequestStatus(route.id, "executed");
     return {
       output: {
         status: response.status,
@@ -254,6 +255,7 @@ async function executeConnectorRead(input: {
       connectorRequestId: route.request_id,
     };
   } catch (error) {
+    try { await updateConnectorRequestStatus(route.id, "failed"); } catch {}
     await createAdminClient().rpc("record_connector_outcome", {
       p_organization_id: organizationId,
       p_connector_id: connector.id,
