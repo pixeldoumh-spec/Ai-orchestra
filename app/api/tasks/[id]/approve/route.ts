@@ -3,6 +3,7 @@ import { getOrganizationForUser, requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { appendEvent } from "@/lib/orchestrator/repository";
 import { hasEnterprisePermission } from "@/lib/enterprise/rbac";
+import { executePreparedConnectorRequest } from "@/lib/connectors/executor";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -47,8 +48,87 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (updateError) throw new Error(updateError.message);
 
     if (decision === "approved") {
-      await admin.from("task_steps").update({ status: "queued", error: null, run_after: null }).eq("id", approval.step_id);
-      await admin.from("tasks").update({ status: "queued", error: null, run_after: null }).eq("id", approval.task_id);
+      if (!approval.connector_request_id) {
+        await admin.from("task_steps").update({ status: "queued", error: null, run_after: null }).eq("id", approval.step_id);
+        await admin.from("tasks").update({ status: "queued", error: null, run_after: null }).eq("id", approval.task_id);
+      } else {
+        await appendEvent(id, org.id, "connector.execution.started", {
+          approvalId,
+          connectorRequestId: approval.connector_request_id,
+        }, user.id);
+        try {
+          const execution = await executePreparedConnectorRequest({
+            organizationId: org.id,
+            connectorRequestId: approval.connector_request_id,
+            actorUserId: user.id,
+          });
+          const ok = Boolean(
+            execution.result.output &&
+            typeof execution.result.output === "object" &&
+            (execution.result.output as Record<string, unknown>).ok === true,
+          );
+          if (!ok) {
+            const errorMessage =
+              execution.result.output &&
+              typeof execution.result.output === "object" &&
+              typeof (execution.result.output as Record<string, unknown>).status === "number"
+                ? `Connector returned HTTP ${String((execution.result.output as Record<string, unknown>).status)}`
+                : "Connector action did not succeed";
+            await admin.from("task_steps").update({
+              status: "failed",
+              result: execution.result.output ?? null,
+              error: errorMessage,
+              finished_at: new Date().toISOString(),
+            }).eq("id", approval.step_id);
+            await admin.from("tasks").update({
+              status: "failed",
+              error: errorMessage,
+              completed_at: new Date().toISOString(),
+            }).eq("id", approval.task_id);
+            await appendEvent(id, org.id, "connector.execution.failed", {
+              approvalId,
+              connectorRequestId: approval.connector_request_id,
+              reason: errorMessage,
+            }, user.id);
+            return NextResponse.json({ ok: false, decision, approvalId, connectorRequestId: approval.connector_request_id, error: errorMessage }, { status: 502 });
+          }
+
+          await admin.from("task_steps").update({
+            status: "verified",
+            result: execution.result.output ?? null,
+            error: null,
+            finished_at: new Date().toISOString(),
+          }).eq("id", approval.step_id);
+          await admin.from("tasks").update({
+            status: "queued",
+            error: null,
+            run_after: null,
+          }).eq("id", approval.task_id);
+          await appendEvent(id, org.id, "connector.execution.completed", {
+            approvalId,
+            connectorRequestId: approval.connector_request_id,
+            toolId: execution.toolId,
+          }, user.id);
+        } catch (executionError) {
+          const errorMessage = executionError instanceof Error ? executionError.message : "Connector execution failed";
+          await admin.from("task_steps").update({
+            status: "failed",
+            error: errorMessage,
+            finished_at: new Date().toISOString(),
+          }).eq("id", approval.step_id);
+          await admin.from("tasks").update({
+            status: "failed",
+            error: errorMessage,
+            completed_at: new Date().toISOString(),
+          }).eq("id", approval.task_id);
+          await appendEvent(id, org.id, "connector.execution.failed", {
+            approvalId,
+            connectorRequestId: approval.connector_request_id,
+            reason: errorMessage,
+          }, user.id);
+          return NextResponse.json({ ok: false, decision, approvalId, connectorRequestId: approval.connector_request_id, error: errorMessage }, { status: 502 });
+        }
+      }
     } else {
       await admin.from("task_steps").update({ status: "failed", error: "Human rejected approval", finished_at: now }).eq("id", approval.step_id);
       await admin.from("tasks").update({ status: "failed", error: "Human rejected approval", completed_at: now }).eq("id", approval.task_id);
