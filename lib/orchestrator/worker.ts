@@ -7,6 +7,8 @@ import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, Persist
 import { getModelTools, invokeTool, resolveModelToolId } from "@/lib/tools/gateway";
 import { readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
 import { recordEnterpriseUsage } from "@/lib/enterprise/metering";
+import { listTaskEvidencePackets, persistEvidencePacket } from "@/lib/evidence/repository";
+import { listTaskEvidenceVectorStores } from "@/lib/evidence/openai";
 
 const MAX_TOOL_REQUESTS_PER_STEP = 8;
 const MAX_MODEL_TURNS = 8;
@@ -89,6 +91,8 @@ export async function processTask(taskId: string, organizationId: string, worker
         break;
       }
 
+      const evidenceVectorStoreIds = await listTaskEvidenceVectorStores({ organizationId, taskId });
+      const evidencePackets = await listTaskEvidencePackets(organizationId, taskId);
       const remainingBudget = Math.max(0, Number(snapshot.max_cost_cents) - Number(snapshot.spent_cost_cents));
       const stepBudget = new Map<string, number>();
       for (const stepId of ready) {
@@ -119,6 +123,8 @@ export async function processTask(taskId: string, organizationId: string, worker
             .map((x) => ({ stepId: stepPlanId(x), result: x.result })),
           model,
           executionRegion: snapshot.execution_region,
+          evidenceVectorStoreIds,
+          evidencePackets,
         });
       }));
 
@@ -196,7 +202,7 @@ async function runStep(input: {
   model: ModelAdapter;
   executionRegion?: string | null;
 }): Promise<{ stepId: string; status: "verified" | "failed" | "awaiting_approval" | "queued"; usageCents: number }> {
-  const { taskId, organizationId, goal, maxCostCents, step, agent, priorResults, model, executionRegion } = input;
+  const { taskId, organizationId, goal, maxCostCents, step, agent, priorResults, model, executionRegion, evidenceVectorStoreIds, evidencePackets } = input;
   const attempt = step.attempt_count + 1;
   await updateStep(step.id, { status: "running", attempt_count: attempt, started_at: new Date().toISOString(), error: null });
   await appendEvent(taskId, organizationId, "step.started", { stepId: step.id, agentId: agent.id, attempt, kind: step.kind });
@@ -220,7 +226,7 @@ async function runStep(input: {
         `Goal: ${goal}`,
         `Objective: ${step.objective}`,
         `Step kind: ${step.kind}`,
-        `Prior verified results: ${JSON.stringify(priorResults).slice(0, 24000)}`,
+        `Prior verified results: ${JSON.stringify(priorResults).slice(0, 24000)}`,\n        `Evidence packets already observed: ${JSON.stringify(evidencePackets).slice(0, 12000)}`,
         step.kind === "verification"
           ? "Evaluate the produced work and return only the structured verification result."
           : "Produce useful work and use tools when they materially improve accuracy. Finish with the requested deliverable, not internal reasoning.",
@@ -239,7 +245,7 @@ async function runStep(input: {
         tools,
         outputSchema: step.kind === "verification" ? VERIFICATION_OUTPUT_SCHEMA : null,
         reasoningEffort,
-        verbosity: step.kind === "verification" ? "low" : "medium",
+        verbosity: step.kind === "verification" ? "low" : "medium",\n        webSearch: (process.env.AI_ENABLE_WEB_SEARCH ?? "true") === "true" && (agent.capabilities.includes("research") || step.kind === "verification"),\n        fileSearchVectorStoreIds: (process.env.AI_ENABLE_FILE_SEARCH ?? "true") === "true" ? evidenceVectorStoreIds : [],
       });
       lastModel = result;
       totalUsageCents += result.usageCents;
