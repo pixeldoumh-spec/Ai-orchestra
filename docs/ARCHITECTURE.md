@@ -1,8 +1,8 @@
-# Architecture
+# Architecture · V6.2
 
 ## V5 enterprise layer
 
-Browser -> Auth session -> tenant resolution -> fine-grained RBAC -> database admission controls -> V4 planner -> leased worker -> scoped tools/connectors -> verification -> usage metering + audit -> durable result.
+Browser -> Auth session -> tenant resolution -> fine-grained RBAC -> database admission controls -> model planner -> leased worker -> grounded retrieval/tools -> scoped connector execution -> evidence ledger -> independent verification -> usage metering + audit -> durable result.
 
 ### Enterprise admission
 
@@ -23,3 +23,18 @@ Actual model/tool usage is recorded as integer cents in an append-oriented ledge
 ### Regions and SLA
 
 Every task carries an execution region selected from the organization's allowlist. Data residency and SLA targets are declarative governance metadata; cross-region worker deployment and failover remain infrastructure concerns.
+## V6.2 grounding plane
+
+Research-capable agents can invoke hosted web search and tenant file search through the model Responses API. Web-search source lists and file-search retrieval results are captured as bounded citation metadata and converted into immutable evidence packets. Evidence packets carry source identity, a decision-relevant claim, a bounded excerpt, optional retrieval confidence, content hash and capture time. This preserves traceability without storing hidden reasoning or raw credentials.
+
+### Document ingestion
+
+A workspace upload is authenticated against its organization, hashed for deduplication, stored in a private Supabase Storage bucket, uploaded to the provider file store and attached to the organization's retrieval index. Document state is durable (stored, indexing, ready, failed, deleted) and can be refreshed through the document status route. Provider file identifiers are metadata, not credentials.
+
+### Connector execution
+
+Read-only connector retrieval runs through an allow-listed HTTPS connector route, credential binding and circuit-breaker checks. High-risk external actions are represented as signed, encrypted connector intents. Approval is a separate state transition; the executor atomically claims the approved intent, revalidates the active agent, organization policy, connector binding and credential, executes the same stored method/path with a request idempotency key, records evidence and closes the intent. A crash before closure is therefore distinguishable from an executed request, and connector APIs should use the idempotency key to make retries safe.
+
+### Trust boundary
+
+Web pages, retrieved files, connector responses and agent messages are treated as untrusted data. They can inform a task but cannot redefine tool permissions, approval policy, or the system instruction.
