@@ -206,6 +206,7 @@ export async function retrieveWorkspaceKnowledge(input: {
       p_user_id: input.userId,
       p_query_embedding: vectorLiteral(embedding),
       p_limit: Math.max(1, Math.min(50, input.limit ?? 8)),
+      p_include_private: !input.workspaceOnly,
     });
     if (!error) return data ?? [];
   } catch {
