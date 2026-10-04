@@ -1,6 +1,7 @@
 import{createHash,randomBytes}from"node:crypto";
 import{createAdminClient}from"@/lib/supabase/admin";
 import type{EnterpriseAuditLog,EnterpriseEntitlements,EnterprisePolicy,EnterpriseSlaPolicy,EnterpriseTeam}from"./types";
+import { getOperationsDashboard } from "@/lib/ops/repository";
 const DEFAULT_REGION=process.env.ENTERPRISE_DEFAULT_REGION??"ap-south-1";
 const DEFAULT_ENTITLEMENTS={plan:"starter",monthly_task_limit:1000,monthly_spend_limit_cents:50000,max_agents:20,max_members:10,max_concurrency:5,max_task_cost_cents:5000,primary_region:DEFAULT_REGION,allowed_regions:[DEFAULT_REGION],data_residency:"in-region",retention_days:30,alert_threshold_percent:80,features:{teams:true,audit:true,usage:true,regional_failover:false,sso:false,scim:false}} as const;
 function monthStart(){const n=new Date();return new Date(Date.UTC(n.getUTCFullYear(),n.getUTCMonth(),1)).toISOString().slice(0,10);}
