@@ -72,10 +72,10 @@ export function chunkText(value: string) {
   return chunks;
 }
 
-async function embedBatches(chunks: string[]) {
+async function embedBatches(chunks: string[], runtimeEnv?: unknown) {
   const vectors: number[][] = [];
   for (let i = 0; i < chunks.length; i += 32) {
-    vectors.push(...await embedTexts(chunks.slice(i, i + 32)));
+    vectors.push(...await embedTexts(chunks.slice(i, i + 32), runtimeEnv));
   }
   return vectors;
 }
@@ -85,6 +85,7 @@ export async function indexDocumentForLocalRetrieval(input: {
   documentId: string;
   file: File;
   mimeType: string;
+  runtimeEnv?: unknown;
 }) {
   const db = createAdminClient();
   const mimeType = input.mimeType.toLowerCase();
@@ -127,7 +128,7 @@ export async function indexDocumentForLocalRetrieval(input: {
 
   try {
     await db.from("knowledge_chunks").delete().eq("organization_id", input.organizationId).eq("document_id", input.documentId);
-    const vectors = await embedBatches(chunks);
+    const vectors = await embedBatches(chunks, input.runtimeEnv);
     if (vectors.length !== chunks.length) throw new Error("Embedding count did not match chunk count");
 
     const rows = chunks.map((chunk, index) => ({
@@ -172,9 +173,10 @@ export async function indexMemoryForRetrieval(input: {
   organizationId: string;
   memoryId: string;
   content: string;
+  runtimeEnv?: unknown;
 }) {
   const db = createAdminClient();
-  const embedding = await embedText(input.content);
+  const embedding = await embedText(input.content, input.runtimeEnv);
   await db.from("knowledge_chunks").delete().eq("organization_id", input.organizationId).eq("memory_id", input.memoryId);
   const { error } = await db.from("knowledge_chunks").insert({
     organization_id: input.organizationId,
@@ -195,12 +197,13 @@ export async function retrieveWorkspaceKnowledge(input: {
   query: string;
   limit?: number;
   workspaceOnly?: boolean;
+  runtimeEnv?: unknown;
 }) {
   const query = normalize(input.query).slice(0, MAX_CHUNK_CHARS);
   if (!query) return [];
   const db = createAdminClient();
   try {
-    const embedding = await embedText(query);
+    const embedding = await embedText(query, input.runtimeEnv);
     const { data, error } = await db.rpc("search_workspace_knowledge", {
       p_organization_id: input.organizationId,
       p_user_id: input.userId,
