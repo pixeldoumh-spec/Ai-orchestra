@@ -2,6 +2,7 @@ import { z } from "zod";
 import { buildAdaptiveFallbackPlan, validatePlan, type WorkflowPlan } from "@/lib/core/workflow";
 import type { AgentDefinition } from "./types";
 import { getDefaultModel, getModelAdapter } from "./model";
+import { getAgentSpecialization, validateSpecializedPlan } from "./specialization";
 
 const plannerStepSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_-]{1,63}$/),
@@ -91,6 +92,7 @@ export async function planWorkflow(input: {
       capabilities: agent.capabilities,
       tools: agent.tools,
       budgetCents: agent.budgetCents,
+      specialization: getAgentSpecialization(agent, "work").role,
     }))
     .slice(0, 32);
 
@@ -111,5 +113,6 @@ export async function planWorkflow(input: {
 
   const parsed = plannerResponseSchema.parse(result.output);
   const plan: WorkflowPlan = { version: "v3", rationale: parsed.rationale || undefined, steps: parsed.steps };
+  validateSpecializedPlan(plan, input.agents);
   return validatePlan(plan, available);
 }
