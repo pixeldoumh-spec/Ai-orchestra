@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ai-orchestra",
-  "main": ".open-next/worker.js",
+  "main": "./workers/main.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": [
     "nodejs_compat"
@@ -61,6 +61,22 @@
         "binding": "TASK_QUEUE",
         "queue": "ai-orchestra-tasks-v66"
       }
+    ],
+    "consumers": [
+      {
+        "queue": "ai-orchestra-tasks-v66",
+        "max_batch_size": 4,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "dead_letter_queue": "ai-orchestra-tasks-v66-dlq",
+        "max_concurrency": 3,
+        "retry_delay": 15
+      }
+    ]
+  },
+  "triggers": {
+    "crons": [
+      "* * * * *"
     ]
   }
 }
