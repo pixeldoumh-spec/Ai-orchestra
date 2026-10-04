@@ -144,3 +144,11 @@ Each research or execution step can emit an immutable evidence packet. A packet 
 ### Connector execution safety
 
 A high-risk external action is first represented as an encrypted, signed connector intent. Human approval changes the intent to `approved`; the executor then atomically claims it as `executing`, resolves the already-authorized connector binding and credential, revalidates the same-origin path and method, executes with bounded timeout/response size and an idempotency key, records a connector evidence packet and closes the request as `executed` or `failed`. The downstream connector should honor the idempotency key for non-read actions.
+
+## V6.4 — Agent Network
+
+AI Orchestra now has a governed agent-to-agent plane. Specialized agents can autonomously delegate bounded work through `agent.delegate`, receive a signed response, and keep task/correlation/reply lineage intact.
+
+The network is protected by tenant policy, explicit source→target trust edges, Ed25519 signatures, encrypted payloads, TTLs, rate limits, delegation-depth and hop limits. Organization policy is enforced both in application code and PostgreSQL admission triggers.
+
+The live network surface is `/network`; policy administration is available to owner/admin roles. Autonomous delegation never inherits hidden authority or connector side effects from the parent agent, and final task verification remains mandatory.
