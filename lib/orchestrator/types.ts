@@ -61,6 +61,7 @@ export interface FunctionModelTool {
 
 export interface WebSearchModelTool {
   type: "web_search";
+  search_context_size?: "low" | "medium" | "high";
 }
 
 export interface FileSearchModelTool {
