@@ -91,51 +91,78 @@ function extractCitations(output: unknown): ModelCitation[] {
   const citations: ModelCitation[] = [];
   for (const item of output) {
     if (!item || typeof item !== "object") continue;
-    const candidate = item as { type?: unknown; content?: unknown };
-    if (candidate.type !== "message" || !Array.isArray(candidate.content)) continue;
-    for (const part of candidate.content) {
-      if (!part || typeof part !== "object") continue;
-      const contentPart = part as { annotations?: unknown };
-      if (!Array.isArray(contentPart.annotations)) continue;
-      for (const annotation of contentPart.annotations) {
-        if (!annotation || typeof annotation !== "object") continue;
-        const a = annotation as {
-          type?: unknown;
-          url_citation?: { url?: unknown; title?: unknown; start_index?: unknown; end_index?: unknown };
-          file_citation?: { file_id?: unknown; filename?: unknown; index?: unknown };
-        };
-        if (a.type === "url_citation" && a.url_citation?.url) {
-          citations.push({
-            kind: "url",
-            url: String(a.url_citation.url),
-            title: typeof a.url_citation.title === "string" ? a.url_citation.title : undefined,
-            startIndex: Number.isFinite(Number(a.url_citation.start_index)) ? Number(a.url_citation.start_index) : undefined,
-            endIndex: Number.isFinite(Number(a.url_citation.end_index)) ? Number(a.url_citation.end_index) : undefined,
-          });
+    const candidate = item as { type?: unknown; content?: unknown; action?: unknown; results?: unknown };
+    if (candidate.type === "message" && Array.isArray(candidate.content)) {
+      for (const part of candidate.content) {
+        if (!part || typeof part !== "object") continue;
+        const contentPart = part as { annotations?: unknown };
+        if (!Array.isArray(contentPart.annotations)) continue;
+        for (const annotation of contentPart.annotations) {
+          if (!annotation || typeof annotation !== "object") continue;
+          const a = annotation as {
+            type?: unknown;
+            url_citation?: { url?: unknown; title?: unknown; start_index?: unknown; end_index?: unknown };
+            file_citation?: { file_id?: unknown; filename?: unknown; index?: unknown };
+          };
+          if (a.type === "url_citation" && a.url_citation?.url) {
+            citations.push({
+              kind: "url",
+              url: String(a.url_citation.url),
+              title: typeof a.url_citation.title === "string" ? a.url_citation.title : undefined,
+              startIndex: Number.isFinite(Number(a.url_citation.start_index)) ? Number(a.url_citation.start_index) : undefined,
+              endIndex: Number.isFinite(Number(a.url_citation.end_index)) ? Number(a.url_citation.end_index) : undefined,
+            });
+          }
+          if (a.type === "file_citation" && a.file_citation?.file_id) {
+            citations.push({
+              kind: "file",
+              fileId: String(a.file_citation.file_id),
+              filename: typeof a.file_citation.filename === "string" ? a.file_citation.filename : undefined,
+              startIndex: Number.isFinite(Number(a.file_citation.index)) ? Number(a.file_citation.index) : undefined,
+            });
+          }
         }
-        if (a.type === "file_citation" && a.file_citation?.file_id) {
+      }
+    }
+    if (candidate.type === "web_search_call" && candidate.action && typeof candidate.action === "object") {
+      const action = candidate.action as { sources?: unknown };
+      if (Array.isArray(action.sources)) {
+        for (const source of action.sources) {
+          if (!source || typeof source !== "object") continue;
+          const s = source as { url?: unknown; title?: unknown; snippet?: unknown };
+          if (typeof s.url === "string") {
+            citations.push({
+              kind: "url",
+              url: s.url,
+              title: typeof s.title === "string" ? s.title : undefined,
+              excerpt: typeof s.snippet === "string" ? s.snippet.slice(0, 4000) : undefined,
+            });
+          }
+        }
+      }
+    }
+    if (candidate.type === "file_search_call" && Array.isArray(candidate.results)) {
+      for (const result of candidate.results) {
+        if (!result || typeof result !== "object") continue;
+        const file = result as { file_id?: unknown; filename?: unknown; text?: unknown; score?: unknown; content?: unknown };
+        const text = typeof file.text === "string"
+          ? file.text
+          : typeof file.content === "string"
+            ? file.content
+            : undefined;
+        if (typeof file.file_id === "string") {
           citations.push({
             kind: "file",
-            fileId: String(a.file_citation.file_id),
-            filename: typeof a.file_citation.filename === "string" ? a.file_citation.filename : undefined,
-            startIndex: Number.isFinite(Number(a.file_citation.index)) ? Number(a.file_citation.index) : undefined,
+            fileId: file.file_id,
+            filename: typeof file.filename === "string" ? file.filename : undefined,
+            excerpt: text?.slice(0, 4000),
+            score: Number.isFinite(Number(file.score)) ? Number(file.score) : undefined,
           });
         }
       }
     }
   }
   return citations;
-}
-
-function extractFunctionCalls(output: unknown): ModelFunctionCall[] {
-  if (!Array.isArray(output)) return [];
-  return output.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const candidate = item as { type?: unknown; call_id?: unknown; name?: unknown; arguments?: unknown };
-    if (candidate.type !== "function_call") return [];
-    if (typeof candidate.call_id !== "string" || typeof candidate.name !== "string" || typeof candidate.arguments !== "string") return [];
-    return [{ callId: candidate.call_id, name: candidate.name, arguments: candidate.arguments }];
-  });
 }
 
 function redactProviderError(status: number, body: unknown): Error {
@@ -229,9 +256,14 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
       };
 
       if (input.tools && input.tools.length > 0) body.tools = input.tools;
+      const include: string[] = [];
       if (input.tools?.some((tool) => tool.type === "file_search")) {
-        body.include = ["file_search_call.results"];
+        include.push("file_search_call.results");
       }
+      if (input.tools?.some((tool) => tool.type === "web_search")) {
+        include.push("web_search_call.action.sources");
+      }
+      if (include.length > 0) body.include = include;
 
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
