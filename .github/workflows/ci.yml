@@ -5,7 +5,7 @@ on:
 
 jobs:
   quality:
-    # V5 enterprise release gate.
+    # V6 agent-network release gate.
     # Post-merge main verification.
     runs-on: ubuntu-latest
     steps:

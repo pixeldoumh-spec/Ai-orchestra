@@ -1,0 +1,5 @@
+import{NextResponse}from"next/server";
+import{getOrganizationForUser,requireUser}from"@/lib/auth";
+import{hasEnterprisePermission}from"@/lib/enterprise/rbac";
+import{listNetworkEvents}from"@/lib/network/repository";
+export async function GET(request:Request){try{const{db,user}=await requireUser();const qs=new URL(request.url).searchParams;const org=await getOrganizationForUser(db,user.id,qs.get("organizationId"));if(!org)return NextResponse.json({error:"Organization not found"},{status:404});if(!hasEnterprisePermission(org.role,"network.read"))return NextResponse.json({error:"Network read permission is required"},{status:403});return NextResponse.json({events:await listNetworkEvents({organizationId:org.id,messageId:qs.get("messageId"),limit:Number(qs.get("limit")??100)})});}catch(e){const status=e instanceof Response?e.status:500;return NextResponse.json({error:e instanceof Error?e.message:"Unknown error"},{status});}}

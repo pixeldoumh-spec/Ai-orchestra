@@ -27,14 +27,25 @@ export async function ensureDefaultAgents(organizationId: string): Promise<void>
   if (error) throw new Error(error.message);
 
   const agents = [
-    { id: "research", organization_id: organizationId, name: "Research Agent", description: "Collects and structures inputs.", capabilities: ["research", "summarize"], permissions: ["context.read", "time.read"], tools: ["time.now"], budget_cents: 100, status: "healthy", version: "4.0.0" },
-    { id: "analysis", organization_id: organizationId, name: "Analysis Agent", description: "Reasons over structured inputs.", capabilities: ["analysis", "reasoning"], permissions: ["context.read"], tools: [], budget_cents: 150, status: "healthy", version: "4.0.0" },
-    { id: "writer", organization_id: organizationId, name: "Writer Agent", description: "Creates the user-facing result and optional artifact.", capabilities: ["writing", "formatting"], permissions: ["context.read", "artifact.write"], tools: ["artifact.write"], budget_cents: 100, status: "healthy", version: "4.0.0" },
-    { id: "verifier", organization_id: organizationId, name: "Verifier Agent", description: "Checks completeness, consistency and unsupported claims.", capabilities: ["verification", "quality-control"], permissions: ["context.read", "artifact.read"], tools: [], budget_cents: 75, status: "healthy", version: "4.0.0" },
+    { id: "research", organization_id: organizationId, name: "Research Agent", description: "Collects and structures inputs.", capabilities: ["research", "summarize"], permissions: ["context.read", "time.read", "network.send", "network.receive", "network.ack"], tools: ["time.now", "agent.message.send", "agent.message.receive", "agent.message.ack"], budget_cents: 100, status: "healthy", version: "4.0.0" },
+    { id: "analysis", organization_id: organizationId, name: "Analysis Agent", description: "Reasons over structured inputs.", capabilities: ["analysis", "reasoning"], permissions: ["context.read", "network.send", "network.receive", "network.ack"], tools: ["agent.message.send", "agent.message.receive", "agent.message.ack"], budget_cents: 150, status: "healthy", version: "4.0.0" },
+    { id: "writer", organization_id: organizationId, name: "Writer Agent", description: "Creates the user-facing result and optional artifact.", capabilities: ["writing", "formatting"], permissions: ["context.read", "artifact.write", "network.send", "network.receive", "network.ack"], tools: ["artifact.write", "agent.message.send", "agent.message.receive", "agent.message.ack"], budget_cents: 100, status: "healthy", version: "4.0.0" },
+    { id: "verifier", organization_id: organizationId, name: "Verifier Agent", description: "Checks completeness, consistency and unsupported claims.", capabilities: ["verification", "quality-control"], permissions: ["context.read", "artifact.read", "network.send", "network.receive", "network.ack"], tools: ["agent.message.send", "agent.message.receive", "agent.message.ack"], budget_cents: 75, status: "healthy", version: "4.0.0" },
   ];
   if ((count ?? 0) === 0) {
     const { error: insertError } = await db.from("agents").insert(agents);
     if (insertError) throw new Error(insertError.message);
+  }
+  for (const seed of agents) {
+    const { data: existing, error: existingError } = await db.from("agents").select("id,permissions,tools").eq("organization_id", organizationId).eq("id", seed.id).maybeSingle();
+    if (existingError) throw new Error(existingError.message);
+    if (!existing) continue;
+    const permissions = [...new Set([...(Array.isArray(existing.permissions) ? existing.permissions : []), ...seed.permissions])];
+    const tools = [...new Set([...(Array.isArray(existing.tools) ? existing.tools : []), ...seed.tools])];
+    if (permissions.length !== (Array.isArray(existing.permissions) ? existing.permissions.length : 0) || tools.length !== (Array.isArray(existing.tools) ? existing.tools.length : 0)) {
+      const { error: syncError } = await db.from("agents").update({ permissions, tools }).eq("organization_id", organizationId).eq("id", seed.id);
+      if (syncError) throw new Error(syncError.message);
+    }
   }
   const { data: currentAgents, error: agentListError } = await db.from("agents").select("id").eq("organization_id", organizationId);
   if (agentListError) throw new Error(agentListError.message);
