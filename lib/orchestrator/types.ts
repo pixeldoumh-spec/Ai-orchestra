@@ -113,6 +113,11 @@ export interface ModelResult {
   cachedInputTokens: number;
   outputTokens: number;
   usageCents: number;
+  provider?: string;
+  resourceUsage?: {
+    unit: "neurons";
+    estimated: number | null;
+  };
   responseId?: string;
   responseItems?: unknown[];
   functionCalls?: ModelFunctionCall[];
@@ -122,7 +127,9 @@ export interface ModelResult {
 }
 
 export interface ModelAdapter {
+  readonly provider?: string;
   complete(input: ModelCompleteInput): Promise<ModelResult>;
+  supportsTool?(type: ModelTool["type"]): boolean;
 }
 
 export interface PersistedStep {
