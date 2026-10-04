@@ -11,7 +11,7 @@ type WorkersAI = {
   run(model: string, input: Record<string, unknown>, options?: { rejectIfBusy?: boolean }): Promise<unknown>;
 };
 
-let dailyExhaustedUntil = 0;
+const dailyExhaustedUntilByModel = new Map<string, number>();
 
 const MODEL_DEFAULT = "@cf/openai/gpt-oss-20b";
 const MAX_OUTPUT_TOKENS = 4096;
@@ -337,11 +337,11 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
   }
 
   async complete(input: ModelCompleteInput): Promise<ModelResult> {
-    if (Date.now() < dailyExhaustedUntil) {
-      throw new Error("Cloudflare Workers AI daily free allocation is exhausted; waiting for the next UTC reset");
-    }
-
     const model = modelForInput(input);
+    const dailyExhaustedUntil = dailyExhaustedUntilByModel.get(model) ?? 0;
+    if (Date.now() < dailyExhaustedUntil) {
+      throw new Error(`Cloudflare Workers AI daily allocation for ${model} is exhausted; waiting for the next UTC reset`);
+    }
     const ai = getWorkersAI(this.runtimeEnv);
     const maxTokens = maxOutputTokens();
     const request: Record<string, unknown> = usesChatCompletions(model)
@@ -374,7 +374,7 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
 
       if (isErrorEnvelope(result)) {
         const code = responseErrorCode(result);
-        if (code === 3036) dailyExhaustedUntil = endOfUtcDayMs();
+        if (code === 3036) dailyExhaustedUntilByModel.set(model, endOfUtcDayMs());
         throw new Error(responseErrorMessage(result));
       }
 
@@ -425,7 +425,7 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
       };
     } catch (error) {
       const code = responseErrorCode(error);
-      if (code === 3036) dailyExhaustedUntil = endOfUtcDayMs();
+      if (code === 3036) dailyExhaustedUntilByModel.set(model, endOfUtcDayMs());
       if (code === 3040) {
         throw new Error("Cloudflare Workers AI capacity temporarily unavailable");
       }
