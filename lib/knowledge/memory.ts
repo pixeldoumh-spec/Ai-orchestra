@@ -28,6 +28,7 @@ export async function createMemory(input: {
   importance?: number;
   expiresAt?: string | null;
   metadata?: Record<string, unknown>;
+  runtimeEnv?: unknown;
 }) {
   const content = normalize(input.content);
   if (!content || content.length > MAX_CONTENT) throw new Error("Memory content must be 1–12,000 characters");
@@ -72,6 +73,7 @@ export async function createMemory(input: {
       organizationId: input.organizationId,
       memoryId: data.id,
       content,
+      runtimeEnv: input.runtimeEnv,
     });
   } catch {
     retrievalReady = false;
@@ -100,6 +102,7 @@ export async function retrieveKnowledge(input: {
   query: string;
   limit?: number;
   workspaceOnly?: boolean;
+  runtimeEnv?: unknown;
 }) {
   const normalized = normalize(input.query);
   if (!normalized) return [];
@@ -109,6 +112,7 @@ export async function retrieveKnowledge(input: {
     query: normalized,
     limit: Math.max(1, Math.min(MAX_RESULTS, input.limit ?? 8)),
     workspaceOnly: input.workspaceOnly ?? false,
+    runtimeEnv: input.runtimeEnv,
   });
 }
 
