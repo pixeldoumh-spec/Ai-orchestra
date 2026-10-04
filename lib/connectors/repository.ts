@@ -97,7 +97,7 @@ export async function prepareConnectorRequest(input:{organizationId:string;taskI
   let actionPath:string|null=null;
   if(input.toolInvocation.toolId==="external.action"&&input.toolInvocation.input&&typeof input.toolInvocation.input==="object"){
     const rawAction=String((input.toolInvocation.input as Record<string,unknown>).action??"").trim();
-    const match=rawAction.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD)\\s+(\\/[^\\s]*)$/i);
+    const match=rawAction.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD)\s+(\/[^\s]*)$/i);
     if(match){actionMethod=match[1].toUpperCase();actionPath=match[2];}
   }
   const db=createAdminClient();const{data,error}=await db.from("connector_requests").insert({
