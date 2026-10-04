@@ -1,4 +1,4 @@
-import type { AgentDefinition, ToolDefinition, ToolInvocation, ToolResult } from "@/lib/orchestrator/types";
+import type { AgentDefinition, ModelTool, ToolDefinition, ToolInvocation, ToolResult } from "@/lib/orchestrator/types";
 import { canUsePermission, requiresApproval } from "@/lib/core/policy";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareConnectorRequest, recordToolInvocation } from "@/lib/connectors/repository";
@@ -11,8 +11,93 @@ export const builtinTools: ToolDefinition[] = [
   { id: "agent.message.send", name: "Send agent message", description: "Send a signed message to a trusted peer agent.", permission: "network.send", risk: "medium" },
   { id: "agent.message.receive", name: "Receive agent messages", description: "Claim queued messages from this agent's durable inbox.", permission: "network.receive", risk: "low" },
   { id: "agent.message.ack", name: "Acknowledge agent message", description: "Acknowledge or fail a delivered peer message.", permission: "network.ack", risk: "low" },
-  { id: "external.action", name: "External action", description: "Prepared through a signed connector request; side effects remain explicitly disabled until a connector adapter is approved.", permission: "external.execute", risk: "high" },
+  { id: "external.action", name: "External action", description: "Prepare an external side effect through the signed connector and approval pipeline.", permission: "external.execute", risk: "high" },
 ];
+
+const nullableString = () => ({ anyOf: [{ type: "string" }, { type: "null" }] });
+
+const modelParameters: Record<string, Record<string, unknown>> = {
+  "time.now": {
+    type: "object",
+    properties: {},
+    required: [],
+    additionalProperties: false,
+  },
+  "artifact.write": {
+    type: "object",
+    properties: {
+      name: { type: "string", description: "Artifact filename." },
+      content: { type: "string", description: "Artifact contents." },
+    },
+    required: ["name", "content"],
+    additionalProperties: false,
+  },
+  "agent.message.send": {
+    type: "object",
+    properties: {
+      recipientAgentId: { type: "string" },
+      subject: { type: "string" },
+      payload: { type: "string", description: "JSON-encoded payload." },
+      scope: { type: "string" },
+      kind: { type: "string", enum: ["request", "response", "event", "delegation"] },
+      conversationId: nullableString(),
+      correlationId: nullableString(),
+      replyToMessageId: nullableString(),
+      ttlSeconds: { type: "integer" },
+      priority: { type: "integer" },
+    },
+    required: ["recipientAgentId", "subject", "payload", "scope", "kind", "conversationId", "correlationId", "replyToMessageId", "ttlSeconds", "priority"],
+    additionalProperties: false,
+  },
+  "agent.message.receive": {
+    type: "object",
+    properties: {
+      limit: { type: "integer" },
+    },
+    required: ["limit"],
+    additionalProperties: false,
+  },
+  "agent.message.ack": {
+    type: "object",
+    properties: {
+      messageId: { type: "string" },
+      success: { type: "boolean" },
+      error: nullableString(),
+    },
+    required: ["messageId", "success", "error"],
+    additionalProperties: false,
+  },
+  "external.action": {
+    type: "object",
+    properties: {
+      action: { type: "string" },
+      input: { type: "string", description: "JSON-encoded action input." },
+    },
+    required: ["action", "input"],
+    additionalProperties: false,
+  },
+};
+
+function modelToolName(toolId: string): string {
+  return toolId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+}
+
+export function getModelTools(agent: AgentDefinition): ModelTool[] {
+  return builtinTools
+    .filter((tool) => agent.tools.includes(tool.id) && modelParameters[tool.id])
+    .map((tool) => ({
+      type: "function",
+      name: modelToolName(tool.id),
+      description: tool.description,
+      parameters: modelParameters[tool.id],
+      strict: true,
+    }));
+}
+
+export function resolveModelToolId(name: string): string | null {
+  const tool = builtinTools.find((candidate) => modelToolName(candidate.id) === name);
+  return tool?.id ?? null;
+}
 
 export async function invokeTool(agent: AgentDefinition, taskId: string, invocation: ToolInvocation, stepId = "unknown"): Promise<ToolResult> {
   const tool = builtinTools.find((candidate) => candidate.id === invocation.toolId);
@@ -37,22 +122,28 @@ export async function invokeTool(agent: AgentDefinition, taskId: string, invocat
     throw new Error(`Missing permission ${tool.permission}`);
   }
 
-
   if (tool.id === "agent.message.send") {
     const input = invocation.input as { recipientAgentId?: unknown; subject?: unknown; payload?: unknown; scope?: unknown; kind?: unknown; conversationId?: unknown; correlationId?: unknown; replyToMessageId?: unknown; ttlSeconds?: unknown; priority?: unknown } | null;
     const recipientAgentId = String(input?.recipientAgentId ?? "");
     const subject = String(input?.subject ?? "").trim();
     if (!recipientAgentId || !subject) throw new Error("agent.message.send requires recipientAgentId and subject");
+    let payload = input?.payload ?? null;
+    if (typeof payload === "string") {
+      try { payload = JSON.parse(payload); } catch {}
+    }
     const message = await sendAgentMessage({
-      organizationId: agent.organizationId, senderAgentId: agent.id, recipientAgentId, subject,
-      payload: input?.payload ?? null,
+      organizationId: agent.organizationId,
+      senderAgentId: agent.id,
+      recipientAgentId,
+      subject,
+      payload,
       scope: typeof input?.scope === "string" ? input.scope : undefined,
       kind: input?.kind as "request" | "response" | "event" | "delegation" | undefined,
       conversationId: typeof input?.conversationId === "string" ? input.conversationId : null,
       correlationId: typeof input?.correlationId === "string" ? input.correlationId : null,
       replyToMessageId: typeof input?.replyToMessageId === "string" ? input.replyToMessageId : null,
       ttlSeconds: typeof input?.ttlSeconds === "number" ? input.ttlSeconds : undefined,
-      priority: typeof input?.priority === "number" ? input.priority : undefined
+      priority: typeof input?.priority === "number" ? input.priority : undefined,
     });
     const result = { output: { sent: true, messageId: message.messageId, recipientAgentId: message.recipientAgentId, conversationId: message.conversationId, status: message.status }, approved: true };
     await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "executed", result });
@@ -72,9 +163,11 @@ export async function invokeTool(agent: AgentDefinition, taskId: string, invocat
     const messageId = String(input?.messageId ?? "");
     if (!messageId) throw new Error("agent.message.ack requires messageId");
     const message = await acknowledgeNetworkMessage({
-      organizationId: agent.organizationId, agentId: agent.id, messageId,
+      organizationId: agent.organizationId,
+      agentId: agent.id,
+      messageId,
       success: input?.success !== false,
-      error: typeof input?.error === "string" ? input.error : null
+      error: typeof input?.error === "string" ? input.error : null,
     });
     const result = { output: { acknowledged: true, messageId: message.messageId, status: message.status }, approved: true };
     await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "executed", result });

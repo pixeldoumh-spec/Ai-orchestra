@@ -1,50 +1,71 @@
-import type { ModelAdapter, ModelResult } from "./types";
+import type {
+  ModelAdapter,
+  ModelCompleteInput,
+  ModelFunctionCall,
+  ModelResult,
+} from "./types";
 
-function estimateCents(inputTokens: number, outputTokens: number): number {
-  const inRate = Number(process.env.AI_INPUT_USD_PER_MILLION ?? "0");
-  const outRate = Number(process.env.AI_OUTPUT_USD_PER_MILLION ?? "0");
-  return Math.ceil(((inputTokens / 1_000_000) * inRate + (outputTokens / 1_000_000) * outRate) * 100);
+type Pricing = {
+  inputUsdPerMillion: number;
+  cachedInputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+};
+
+const MODEL_PRICING: Array<{ prefix: string; pricing: Pricing }> = [
+  {
+    prefix: "gpt-5.5",
+    pricing: { inputUsdPerMillion: 5, cachedInputUsdPerMillion: 0.5, outputUsdPerMillion: 30 },
+  },
+  {
+    prefix: "gpt-5.4-mini",
+    pricing: { inputUsdPerMillion: 0.75, cachedInputUsdPerMillion: 0.075, outputUsdPerMillion: 4.5 },
+  },
+  {
+    prefix: "gpt-5.4",
+    pricing: { inputUsdPerMillion: 2.5, cachedInputUsdPerMillion: 0.25, outputUsdPerMillion: 15 },
+  },
+];
+
+function positiveEnvNumber(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? "");
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-export class MockModelAdapter implements ModelAdapter {
-  async complete(input: { system: string; user: string; model?: string | null }): Promise<ModelResult> {
-    if (input.system.includes("Verifier Agent")) {
-      return { output: JSON.stringify({ passed: true, confidence: 0.95, findings: [], evidence: ["Mock verifier completed a structural verification pass."] }), inputTokens: 0, outputTokens: 0, usageCents: 0 };
-    }
+function pricingForModel(model: string): Pricing {
+  const match = MODEL_PRICING.find((entry) => model === entry.prefix || model.startsWith(entry.prefix + "-"));
+  if (match) {
     return {
-      output: JSON.stringify({ result: `Completed: ${input.user.slice(0, 1000)}`, toolRequests: [] }),
-      inputTokens: 0,
-      outputTokens: 0,
-      usageCents: 0,
+      inputUsdPerMillion: positiveEnvNumber("AI_INPUT_USD_PER_MILLION", match.pricing.inputUsdPerMillion),
+      cachedInputUsdPerMillion: positiveEnvNumber("AI_CACHED_INPUT_USD_PER_MILLION", match.pricing.cachedInputUsdPerMillion),
+      outputUsdPerMillion: positiveEnvNumber("AI_OUTPUT_USD_PER_MILLION", match.pricing.outputUsdPerMillion),
     };
   }
+
+  return {
+    inputUsdPerMillion: positiveEnvNumber("AI_INPUT_USD_PER_MILLION", 0),
+    cachedInputUsdPerMillion: positiveEnvNumber("AI_CACHED_INPUT_USD_PER_MILLION", 0),
+    outputUsdPerMillion: positiveEnvNumber("AI_OUTPUT_USD_PER_MILLION", 0),
+  };
 }
 
-export class OpenAIResponsesAdapter implements ModelAdapter {
-  async complete(input: { system: string; user: string; model?: string | null }): Promise<ModelResult> {
-    const key = process.env.OPENAI_API_KEY;
-    if (!key) throw new Error("OPENAI_API_KEY is not configured");
-    const model = input.model || process.env.OPENAI_MODEL;
-    if (!model) throw new Error("OPENAI_MODEL is not configured");
+function estimateCents(model: string, inputTokens: number, cachedInputTokens: number, outputTokens: number): number {
+  const pricing = pricingForModel(model);
+  const cached = Math.min(Math.max(0, cachedInputTokens), Math.max(0, inputTokens));
+  const uncached = Math.max(0, inputTokens - cached);
+  const usd =
+    (uncached / 1_000_000) * pricing.inputUsdPerMillion +
+    (cached / 1_000_000) * pricing.cachedInputUsdPerMillion +
+    (outputTokens / 1_000_000) * pricing.outputUsdPerMillion;
+  return Math.ceil(usd * 100);
+}
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        model,
-        input: [
-          { role: "system", content: input.system },
-          { role: "user", content: input.user },
-        ],
-      }),
-    });
-
-    const body = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(`Model provider error (${response.status})`);
-    const inputTokens = Number(body?.usage?.input_tokens ?? 0);
-    const outputTokens = Number(body?.usage?.output_tokens ?? 0);
-    const text = typeof body?.output_text === "string" ? body.output_text : extractOutputText(body?.output);
-    return { output: text, inputTokens, outputTokens, usageCents: estimateCents(inputTokens, outputTokens), raw: body };
+function parseJsonText(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
   }
 }
 
@@ -53,17 +74,189 @@ function extractOutputText(output: unknown): string {
   const parts: string[] = [];
   for (const item of output) {
     if (!item || typeof item !== "object") continue;
-    const content = (item as { content?: unknown }).content;
-    if (!Array.isArray(content)) continue;
-    for (const part of content) {
+    const candidate = item as { type?: unknown; content?: unknown };
+    if (candidate.type !== "message" || !Array.isArray(candidate.content)) continue;
+    for (const part of candidate.content) {
       if (!part || typeof part !== "object") continue;
-      const text = (part as { text?: unknown }).text;
-      if (typeof text === "string") parts.push(text);
+      const piece = part as { type?: unknown; text?: unknown };
+      if (piece.type === "output_text" && typeof piece.text === "string") parts.push(piece.text);
     }
   }
   return parts.join("\n");
 }
 
+function extractFunctionCalls(output: unknown): ModelFunctionCall[] {
+  if (!Array.isArray(output)) return [];
+  return output.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const candidate = item as { type?: unknown; call_id?: unknown; name?: unknown; arguments?: unknown };
+    if (candidate.type !== "function_call") return [];
+    if (typeof candidate.call_id !== "string" || typeof candidate.name !== "string" || typeof candidate.arguments !== "string") return [];
+    return [{ callId: candidate.call_id, name: candidate.name, arguments: candidate.arguments }];
+  });
+}
+
+function redactProviderError(status: number, body: unknown): Error {
+  let message = `Model provider error (${status})`;
+  if (status === 401) message = "Model provider authentication failed";
+  else if (status === 403) message = "Model provider request was forbidden";
+  else if (status === 429) message = "Model provider rate limit reached";
+  else if (body && typeof body === "object") {
+    const error = (body as { error?: { code?: unknown } }).error;
+    if (error?.code === "insufficient_quota") message = "Model provider quota is exhausted";
+  }
+  return new Error(message);
+}
+
+export class MockModelAdapter implements ModelAdapter {
+  async complete(input: ModelCompleteInput): Promise<ModelResult> {
+    if (input.system.includes("Verifier Agent")) {
+      const output = {
+        passed: true,
+        confidence: 0.95,
+        findings: [],
+        evidence: ["Mock verifier completed a structural verification pass."],
+      };
+      return {
+        output,
+        outputText: JSON.stringify(output),
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        usageCents: 0,
+        status: "completed",
+        responseItems: [],
+        functionCalls: [],
+      };
+    }
+
+    return {
+      output: `Completed: ${(input.user ?? "").slice(0, 1000)}`,
+      outputText: `Completed: ${(input.user ?? "").slice(0, 1000)}`,
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      usageCents: 0,
+      status: "completed",
+      responseItems: [],
+      functionCalls: [],
+    };
+  }
+}
+
+export class OpenAIResponsesAdapter implements ModelAdapter {
+  async complete(input: ModelCompleteInput): Promise<ModelResult> {
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) throw new Error("OPENAI_API_KEY is not configured");
+
+    const model = input.model || process.env.OPENAI_MODEL || "gpt-5.4-mini";
+    const maxOutputTokens = Math.min(
+      16_384,
+      Math.max(256, Number(process.env.OPENAI_MAX_OUTPUT_TOKENS ?? "4096")),
+    );
+    const timeoutMs = Math.min(
+      120_000,
+      Math.max(10_000, Number(process.env.OPENAI_TIMEOUT_MS ?? "45_000")),
+    );
+    const effort = input.reasoningEffort ?? "medium";
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const body: Record<string, unknown> = {
+        model,
+        instructions: input.system,
+        input: input.inputItems ?? [{ role: "user", content: input.user ?? "" }],
+        store: false,
+        max_output_tokens: maxOutputTokens,
+        reasoning: { effort },
+        text: {
+          verbosity: input.verbosity ?? "medium",
+          ...(input.outputSchema
+            ? {
+                format: {
+                  type: "json_schema",
+                  name: input.outputSchema.name,
+                  strict: true,
+                  schema: input.outputSchema.schema,
+                },
+              }
+            : {}),
+        },
+      };
+
+      if (input.tools && input.tools.length > 0) body.tools = input.tools;
+
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      const responseBody = await response.json().catch(() => null);
+      if (!response.ok) throw redactProviderError(response.status, responseBody);
+
+      const status = typeof responseBody?.status === "string" ? responseBody.status : "unknown";
+      if (status !== "completed") {
+        const reason =
+          typeof responseBody?.incomplete_details?.reason === "string"
+            ? responseBody.incomplete_details.reason
+            : "unknown";
+        throw new Error(`Model response incomplete (${status}; ${reason})`);
+      }
+
+      const output = Array.isArray(responseBody?.output) ? responseBody.output : [];
+      const outputText =
+        typeof responseBody?.output_text === "string"
+          ? responseBody.output_text
+          : extractOutputText(output);
+      const functionCalls = extractFunctionCalls(output);
+      const inputTokens = Number(responseBody?.usage?.input_tokens ?? 0);
+      const cachedInputTokens = Number(
+        responseBody?.usage?.input_tokens_details?.cached_tokens ??
+          responseBody?.usage?.input_token_details?.cached_tokens ??
+          0,
+      );
+      const outputTokens = Number(responseBody?.usage?.output_tokens ?? 0);
+      const usageCents = estimateCents(model, inputTokens, cachedInputTokens, outputTokens);
+      const structured = input.outputSchema ? parseJsonText(outputText) : null;
+
+      if (input.outputSchema && structured === null && functionCalls.length === 0) {
+        throw new Error(`Structured model output ${input.outputSchema.name} could not be parsed`);
+      }
+
+      return {
+        output: input.outputSchema ? structured : outputText,
+        outputText,
+        inputTokens,
+        cachedInputTokens,
+        outputTokens,
+        usageCents,
+        responseId: typeof responseBody?.id === "string" ? responseBody.id : undefined,
+        responseItems: output,
+        functionCalls,
+        model: typeof responseBody?.model === "string" ? responseBody.model : model,
+        status,
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Model provider request timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 export function getModelAdapter(): ModelAdapter {
-  return process.env.AI_MODEL_PROVIDER === "openai" ? new OpenAIResponsesAdapter() : new MockModelAdapter();
+  const provider = (process.env.AI_MODEL_PROVIDER ?? "mock").trim().toLowerCase();
+  if (provider === "openai") return new OpenAIResponsesAdapter();
+  if (provider === "mock") return new MockModelAdapter();
+  throw new Error(`Unsupported AI_MODEL_PROVIDER: ${provider}`);
 }
