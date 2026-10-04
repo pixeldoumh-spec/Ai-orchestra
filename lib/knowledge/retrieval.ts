@@ -220,7 +220,8 @@ export async function retrieveWorkspaceKnowledge(input: {
     p_limit: Math.max(1, Math.min(50, input.limit ?? 8)),
   });
   if (error) throw new Error(error.message);
-  return (memories ?? []).map((row: any) => ({
+  const visibleMemories = input.workspaceOnly ? (memories ?? []).filter((row: any) => row.visibility === "workspace") : (memories ?? []);
+  return visibleMemories.map((row: any) => ({
     id: row.id,
     source_type: "memory",
     memory_id: row.id,
