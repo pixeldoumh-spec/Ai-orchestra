@@ -93,13 +93,13 @@ end; $$;
 drop trigger if exists agent_network_message_immutable_trigger on public.agent_network_messages;
 create trigger agent_network_message_immutable_trigger before update on public.agent_network_messages for each row execute function public.agent_network_message_immutable();
 
-create or replace function public.agent_network_message_delete_guard() returns trigger language plpgsql security invoker as $
-begin raise exception 'Network messages are immutable and cannot be deleted';end;$;
+create or replace function public.agent_network_message_delete_guard() returns trigger language plpgsql security invoker as $v6$
+begin raise exception 'Network messages are immutable and cannot be deleted';end;$v6$;
 drop trigger if exists agent_network_message_delete_guard_trigger on public.agent_network_messages;
 create trigger agent_network_message_delete_guard_trigger before delete on public.agent_network_messages for each row execute function public.agent_network_message_delete_guard();
 
-create or replace function public.agent_network_event_immutable() returns trigger language plpgsql security invoker as $
-begin raise exception 'Network event is append-only';end;$;
+create or replace function public.agent_network_event_immutable() returns trigger language plpgsql security invoker as $v6$
+begin raise exception 'Network event is append-only';end;$v6$;
 drop trigger if exists agent_network_event_immutable_trigger on public.agent_network_events;
 create trigger agent_network_event_immutable_trigger before update or delete on public.agent_network_events for each row execute function public.agent_network_event_immutable();
 
