@@ -38,3 +38,10 @@ Read-only connector retrieval runs through an allow-listed HTTPS connector route
 ### Trust boundary
 
 Web pages, retrieved files, connector responses and agent messages are treated as untrusted data. They can inform a task but cannot redefine tool permissions, approval policy, or the system instruction.
+## V6.3 specialized agent plane
+
+The runtime now treats Research, Analysis, Writer and Verifier as explicit execution roles. The planner receives each registered agent's specialization and the plan is rejected unless the current executable DAG covers all four roles plus a verification step. This prevents a generic model response from masquerading as a multi-agent workflow.
+
+Research is evidence-first and reports unknowns/conflicts. Analysis reasons over supplied evidence and separates observation from inference. Writer produces the user-facing deliverable without inventing new facts. Verifier independently audits terminal work and must return a strict passing verification object before finalization.
+
+Step failures use bounded exponential backoff with jitter and durable retry events. Exhausted retries enter the existing bounded replanning path; verifier rejection follows the same failure/retry/replan semantics. No hidden chain-of-thought is persisted.
