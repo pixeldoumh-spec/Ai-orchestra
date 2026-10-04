@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Agent Orchestrator V2",
+  title: "AI Orchestra · Agent Orchestrator V6",
   description: "Durable, policy-aware multi-agent orchestration control plane",
 };
 
