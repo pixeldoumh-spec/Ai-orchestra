@@ -228,7 +228,10 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
         },
       };
 
-      if (input.tools && input.tools.length > 0) body.tools = input.tools;\n      if (input.tools?.some((tool) => tool.type === "file_search")) {\n        body.include = ["file_search_call.results"];\n      }
+      if (input.tools && input.tools.length > 0) body.tools = input.tools;
+      if (input.tools?.some((tool) => tool.type === "file_search")) {
+        body.include = ["file_search_call.results"];
+      }
 
       const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -257,7 +260,8 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
         typeof responseBody?.output_text === "string"
           ? responseBody.output_text
           : extractOutputText(output);
-      const functionCalls = extractFunctionCalls(output);\n      const citations = extractCitations(output);
+      const functionCalls = extractFunctionCalls(output);
+      const citations = extractCitations(output);
       const inputTokens = Number(responseBody?.usage?.input_tokens ?? 0);
       const cachedInputTokens = Number(
         responseBody?.usage?.input_tokens_details?.cached_tokens ??
