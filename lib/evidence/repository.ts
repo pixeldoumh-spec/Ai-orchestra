@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hashJson } from "@/lib/vault/crypto";
+import type { ModelCitation } from "@/lib/orchestrator/types";
 
 export type EvidenceSourceType = "web" | "document" | "connector";
 
@@ -54,7 +55,7 @@ export async function listTaskEvidence(organizationId: string, taskId: string) {
   const db = createAdminClient();
   const { data, error } = await db
     .from("evidence_packets")
-    .select("id,step_id,agent_id,source_type,source_url,source_title,document_id,connector_id,external_ref,excerpt,confidence,citation_index,metadata,created_at")
+    .select("id,step_id,agent_id,source_type,source_url,source_title,document_id,connector_id,external_ref,claim,excerpt,confidence,citation_index,metadata,created_at")
     .eq("organization_id", organizationId)
     .eq("task_id", taskId)
     .order("created_at", { ascending: true });
@@ -76,15 +77,8 @@ export async function persistModelCitations(input: {
   stepId: string;
   agentId: string;
   outputText: string;
-  citations: Array<{
-    kind: "url" | "file";
-    url?: string;
-    title?: string;
-    fileId?: string;
-    filename?: string;
-    startIndex?: number;
-    endIndex?: number;
-  }>;
+  citations: ModelCitation[];
+
 }) {
   const db = createAdminClient();
   const ids: string[] = [];
