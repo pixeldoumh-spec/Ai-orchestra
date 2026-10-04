@@ -1,4 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { hashJson } from "@/lib/vault/crypto";
+import type { ModelCitation } from "@/lib/orchestrator/types";
 
 export type EvidenceSourceType = "web" | "document" | "connector";
 
@@ -17,6 +19,7 @@ export interface EvidencePacketInput {
   contentHash?: string | null;
   confidence?: number | null;
   citationIndex?: number | null;
+  claim?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -35,13 +38,14 @@ export async function createEvidencePacket(input: EvidencePacketInput) {
       document_id: input.documentId ?? null,
       connector_id: input.connectorId ?? null,
       external_ref: input.externalRef ?? null,
+      claim: input.claim ? input.claim.slice(0, 4000) : null,
       excerpt: input.excerpt ? input.excerpt.slice(0, 4000) : null,
       content_hash: input.contentHash ?? null,
       confidence: input.confidence ?? null,
       citation_index: input.citationIndex ?? null,
       metadata: input.metadata ?? {},
     })
-    .select("id,source_type,source_url,source_title,document_id,connector_id,external_ref,excerpt,confidence,citation_index,metadata,created_at")
+    .select("id,source_type,source_url,source_title,document_id,connector_id,external_ref,claim,excerpt,confidence,citation_index,metadata,created_at")
     .single();
   if (error) throw new Error(error.message);
   return data;
@@ -51,7 +55,7 @@ export async function listTaskEvidence(organizationId: string, taskId: string) {
   const db = createAdminClient();
   const { data, error } = await db
     .from("evidence_packets")
-    .select("id,step_id,agent_id,source_type,source_url,source_title,document_id,connector_id,external_ref,excerpt,confidence,citation_index,metadata,created_at")
+    .select("id,step_id,agent_id,source_type,source_url,source_title,document_id,connector_id,external_ref,claim,excerpt,confidence,citation_index,metadata,created_at")
     .eq("organization_id", organizationId)
     .eq("task_id", taskId)
     .order("created_at", { ascending: true });
@@ -73,19 +77,22 @@ export async function persistModelCitations(input: {
   stepId: string;
   agentId: string;
   outputText: string;
-  citations: Array<{
-    kind: "url" | "file";
-    url?: string;
-    title?: string;
-    fileId?: string;
-    filename?: string;
-    startIndex?: number;
-    endIndex?: number;
-  }>;
+  citations: ModelCitation[];
+
 }) {
   const db = createAdminClient();
   const ids: string[] = [];
+  const seen = new Set<string>();
   for (const citation of input.citations.slice(0, 50)) {
+    const dedupeKey = [
+      citation.kind,
+      citation.url ?? "",
+      citation.fileId ?? "",
+      citation.startIndex ?? "",
+      citation.title ?? citation.filename ?? "",
+    ].join("|");
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     let documentId: string | null = null;
     if (citation.kind === "file" && citation.fileId) {
       const { data } = await db
@@ -107,11 +114,16 @@ export async function persistModelCitations(input: {
       sourceTitle: citation.title ?? citation.filename ?? null,
       documentId,
       externalRef: citation.fileId ?? null,
-      excerpt: excerptAround(input.outputText, citation.startIndex),
+      claim: excerptAround(input.outputText, citation.startIndex, 240),
+      excerpt: citation.excerpt ?? excerptAround(input.outputText, citation.startIndex),
+      confidence: typeof citation.score === "number" && Number.isFinite(citation.score)
+        ? Math.max(0, Math.min(1, citation.score))
+        : null,
       citationIndex: citation.startIndex ?? null,
       metadata: {
         citation_kind: citation.kind,
         end_index: citation.endIndex ?? null,
+        retrieval_score: citation.score ?? null,
       },
     });
     ids.push(packet.id);

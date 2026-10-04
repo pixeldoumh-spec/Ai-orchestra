@@ -50,7 +50,9 @@ create table if not exists public.evidence_packets(
   document_id uuid references public.knowledge_documents(id) on delete set null,
   connector_id uuid references public.connectors(id) on delete set null,
   external_ref text,
+  claim text,
   excerpt text check(excerpt is null or char_length(excerpt)<=4000),
+  captured_at timestamptz not null default now(),
   content_hash text check(content_hash is null or char_length(content_hash)=64),
   confidence numeric(5,4) check(confidence is null or (confidence>=0 and confidence<=1)),
   citation_index integer check(citation_index is null or citation_index>=0),
@@ -66,6 +68,25 @@ create index if not exists evidence_packets_document_idx
   on public.evidence_packets(organization_id,document_id,created_at);
 create index if not exists evidence_packets_source_idx
   on public.evidence_packets(organization_id,source_type,created_at desc);
+
+alter table public.connector_requests
+  add column if not exists input_ciphertext text,
+  add column if not exists input_iv text,
+  add column if not exists input_auth_tag text,
+  add column if not exists input_key_version integer,
+  add column if not exists action_method text,
+  add column if not exists action_path text;
+
+alter table public.connector_requests
+  add constraint connector_requests_input_key_version_ck
+  check(input_key_version is null or input_key_version>=1);
+
+create index if not exists connector_requests_execution_idx
+  on public.connector_requests(organization_id,status,expires_at);
+
+alter table public.connector_requests drop constraint if exists connector_requests_status_check;
+alter table public.connector_requests add constraint connector_requests_status_check
+  check(status in('prepared','approved','executing','denied','executed','failed','expired'));
 
 alter table public.organization_knowledge_bases enable row level security;
 alter table public.knowledge_documents enable row level security;

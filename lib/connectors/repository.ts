@@ -92,12 +92,36 @@ export async function prepareConnectorRequest(input:{organizationId:string;taskI
   await ensureAgentIdentity(input.organizationId,input.agent.id);
   const requestId=`req_${randomUUID()}`,nonce=randomUUID(),timestamp=new Date().toISOString(),payloadHash=hashJson({toolId:input.toolInvocation.toolId,input:input.toolInvocation.input});
   const signed=await signAgentRequest({organizationId:input.organizationId,agentId:input.agent.id,payload:{agentId:input.agent.id,connectorId:route.connector.id,requestId,timestamp,nonce,payloadHash}});
-  const db=createAdminClient();const{data,error}=await db.from("connector_requests").insert({organization_id:input.organizationId,task_id:input.taskId,step_id:input.stepId,agent_id:input.agent.id,connector_id:route.connector.id,credential_id:route.binding.credentialId,request_id:requestId,nonce,payload_hash:payloadHash,signature:signed.signature,key_version:signed.keyVersion,status:"prepared",expires_at:new Date(Date.now()+300000).toISOString()}).select("id,request_id,connector_id,credential_id,key_version,expires_at").single();
+  const encryptedInput=encryptSecret(JSON.stringify({toolId:input.toolInvocation.toolId,input:input.toolInvocation.input}));
+  let actionMethod:string|null=null;
+  let actionPath:string|null=null;
+  if(input.toolInvocation.toolId==="external.action"&&input.toolInvocation.input&&typeof input.toolInvocation.input==="object"){
+    const rawAction=String((input.toolInvocation.input as Record<string,unknown>).action??"").trim();
+    const match=rawAction.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD)\s+(\/[^\s]*)$/i);
+    if(match){actionMethod=match[1].toUpperCase();actionPath=match[2];}
+  }
+  const db=createAdminClient();const{data,error}=await db.from("connector_requests").insert({
+    organization_id:input.organizationId,task_id:input.taskId,step_id:input.stepId,agent_id:input.agent.id,
+    connector_id:route.connector.id,credential_id:route.binding.credentialId,request_id:requestId,nonce,payload_hash:payloadHash,
+    signature:signed.signature,key_version:signed.keyVersion,status:"prepared",expires_at:new Date(Date.now()+300000).toISOString(),
+    input_ciphertext:encryptedInput.ciphertext,input_iv:encryptedInput.iv,input_auth_tag:encryptedInput.authTag,input_key_version:encryptedInput.keyVersion,
+    action_method:actionMethod,action_path:actionPath,
+  }).select("id,request_id,connector_id,credential_id,key_version,input_key_version,action_method,action_path,expires_at").single();
   if(error)throw new Error(error.message);return{...data,fingerprint:signed.fingerprint,fallbackDepth:route.fallbackDepth};
 }
 export async function recordToolInvocation(input:{organizationId:string;taskId:string;stepId:string;agentId:string;toolId:string;invocation:ToolInvocation;status:"requested"|"approval_required"|"approved"|"denied"|"executed"|"failed";connectorRequestId?:string|null;result?:ToolResult|null}) {
   const db=createAdminClient();const{data,error}=await db.from("tool_invocations").insert({organization_id:input.organizationId,task_id:input.taskId,step_id:input.stepId,agent_id:input.agentId,tool_id:input.toolId,connector_request_id:input.connectorRequestId??null,status:input.status,input_hash:hashJson(input.invocation.input),output_hash:input.result?.output==null?null:hashJson(input.result.output),policy_decision:input.status,completed_at:["executed","failed","denied"].includes(input.status)?new Date().toISOString():null}).select("id").single();if(error)throw new Error(error.message);return data.id as string;
 }
-export async function updateConnectorRequestStatus(id:string,status:"approved"|"denied"|"executed"|"failed"){const db=createAdminClient();const{error}=await db.from("connector_requests").update({status,completed_at:["executed","failed","denied"].includes(status)?new Date().toISOString():null}).eq("id",id).in("status",["prepared","approved"]);if(error)throw new Error(error.message);}
+export async function updateConnectorRequestStatus(id:string,status:"approved"|"executing"|"denied"|"executed"|"failed"|"expired"){const db=createAdminClient();const{error}=await db.from("connector_requests").update({status,completed_at:["executed","failed","denied","expired"].includes(status)?new Date().toISOString():null}).eq("id",id).in("status",["prepared","approved","executing"]);if(error)throw new Error(error.message);}
+export async function completeToolInvocationForConnectorRequest(input:{organizationId:string;connectorRequestId:string;status:"executed"|"failed"|"denied";result?:ToolResult|null}){
+  const db=createAdminClient();
+  const {error}=await db.from("tool_invocations").update({
+    status:input.status,
+    output_hash:input.result?.output==null?null:hashJson(input.result.output),
+    policy_decision:input.status,
+    completed_at:new Date().toISOString(),
+  }).eq("organization_id",input.organizationId).eq("connector_request_id",input.connectorRequestId).eq("status","approval_required");
+  if(error)throw new Error(error.message);
+}
 export async function listConnectorHealth(orgId:string){const db=createAdminClient();const{data,error}=await db.from("connector_health_events").select("id,connector_id,outcome,latency_ms,http_status,error_class,source,created_at").eq("organization_id",orgId).order("created_at",{ascending:false}).limit(50);if(error)throw new Error(error.message);return data??[];}
 export async function recordConnectorOutcome(input:{organizationId:string;connectorId:string;success:boolean;latencyMs?:number;httpStatus?:number|null;errorClass?:string|null;source?:string}){const db=createAdminClient();const{data,error}=await db.rpc("record_connector_outcome",{p_organization_id:input.organizationId,p_connector_id:input.connectorId,p_success:input.success,p_latency_ms:Math.max(0,Math.round(input.latencyMs??0)),p_http_status:input.httpStatus??null,p_error_class:input.errorClass??null,p_source:input.source??"connector-runtime",p_now:new Date().toISOString()});if(error)throw new Error(error.message);return data?.[0]??null;}

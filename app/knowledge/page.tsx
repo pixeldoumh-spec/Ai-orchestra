@@ -48,6 +48,26 @@ export default function KnowledgePage() {
     void load();
   }, []);
 
+  useEffect(() => {
+    if (!organizationId || !documents.some((doc) => doc.status === "indexing")) return;
+    const timer = window.setInterval(async () => {
+      const pending = documents.filter((doc) => doc.status === "indexing").slice(0, 10);
+      const refreshed = await Promise.all(
+        pending.map(async (doc) => {
+          const res = await fetch(
+            "/api/knowledge/documents/" + encodeURIComponent(doc.id) +
+            "?organizationId=" + encodeURIComponent(organizationId),
+          );
+          if (!res.ok) return doc;
+          const body = await res.json().catch(() => ({}));
+          return body.document ?? doc;
+        }),
+      );
+      setDocuments((current) => current.map((doc) => refreshed.find((next) => next.id === doc.id) ?? doc));
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [organizationId, documents]);
+
   async function upload(event: FormEvent) {
     event.preventDefault();
     if (!file || !organizationId) return;

@@ -5,6 +5,7 @@ import { prepareConnectorRequest, recordToolInvocation, updateConnectorRequestSt
 import { decryptSecret, hashJson } from "@/lib/vault/crypto";
 import { acknowledgeNetworkMessage, claimNetworkMessages, sendAgentMessage } from "@/lib/network/repository";
 import { createEvidencePacket } from "@/lib/evidence/repository";
+import { sanitizeConnectorUrl, sanitizeConnectorText } from "@/lib/connectors/safety";
 
 export const builtinTools: ToolDefinition[] = [
   { id: "time.now", name: "Current time", description: "Returns server time in ISO format.", permission: "time.read", risk: "low" },
@@ -247,7 +248,7 @@ async function executeConnectorRead(input: {
       agentId: agent.id,
       sourceType: "connector",
       sourceTitle: typeof connector.name === "string" ? connector.name : undefined,
-      sourceUrl: target.toString(),
+      sourceUrl: sanitizeConnectorUrl(target.toString()),
       connectorId: connector.id,
       externalRef: route.request_id,
       contentHash: fingerprint,
@@ -264,8 +265,8 @@ async function executeConnectorRead(input: {
         status: response.status,
         ok: response.ok,
         contentType: response.headers.get("content-type"),
-        url: target.toString(),
-        body: body.slice(0, 50_000),
+        url: sanitizeConnectorUrl(target.toString()),
+        body: sanitizeConnectorText(body, 50_000),
         truncated: body.length > 50_000,
         contentHash: fingerprint,
       },

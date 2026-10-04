@@ -1,4 +1,4 @@
-# AI Orchestra V6.1
+# AI Orchestra V6.2
 
 A provider-neutral AI control plane for planning, executing, verifying, protecting and governing multi-agent workflows.
 
@@ -95,7 +95,7 @@ Model
 → evidence packet
 → model.
 
-High-risk `external.action` remains approval-gated and is not converted into an unrestricted side-effect engine in V6.2.
+High-risk `external.action` remains approval-gated. After approval, the exact encrypted intent is atomically claimed and executed through the bound HTTPS connector with idempotency, credential policy, circuit state, timeout/size bounds and durable execution provenance. This is a connector execution plane, not an unrestricted internet side-effect engine.
 
 ### Supported document ingestion
 
@@ -114,3 +114,11 @@ For real V6.2 tool execution:
 `AI_FILE_SEARCH_MAX_RESULTS=8`
 
 Supabase Storage must remain private; file access is controlled by the authenticated tenant boundary and server-side service-role routes. citeturn456443search4
+
+### Evidence model
+
+Each research or execution step can emit an immutable evidence packet. A packet records the source class, source URL/title or tenant document/connector reference, bounded claim/excerpt, optional retrieval confidence, content hash and capture metadata. The result shown to the user can therefore be traced back to durable provenance without persisting hidden chain-of-thought or connector credentials.
+
+### Connector execution safety
+
+A high-risk external action is first represented as an encrypted, signed connector intent. Human approval changes the intent to `approved`; the executor then atomically claims it as `executing`, resolves the already-authorized connector binding and credential, revalidates the same-origin path and method, executes with bounded timeout/response size and an idempotency key, records a connector evidence packet and closes the request as `executed` or `failed`. The downstream connector should honor the idempotency key for non-read actions.

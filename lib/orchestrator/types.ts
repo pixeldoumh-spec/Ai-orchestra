@@ -86,6 +86,8 @@ export interface ModelCitation {
   filename?: string;
   startIndex?: number;
   endIndex?: number;
+  excerpt?: string;
+  score?: number;
 }
 
 export interface ModelOutputSchema {
