@@ -11,6 +11,7 @@ import { getHostedModelTools } from "@/lib/evidence/tools";
 import { persistModelCitations } from "@/lib/evidence/repository";
 import { getAgentSpecialization } from "./specialization";
 import { recordRetrieval, retrieveKnowledge } from "@/lib/knowledge/memory";
+import { recordExecutionMetric } from "@/lib/ops/repository";
 
 const MAX_TOOL_REQUESTS_PER_STEP = 8;
 const MAX_MODEL_TURNS = 8;
@@ -58,11 +59,11 @@ function agentGuidance(agent: AgentDefinition, stepKind: "work" | "verification"
   ].join("\n");
 }
 
-export async function processTask(taskId: string, organizationId: string, workerId = `worker_${crypto.randomUUID()}`) {
+export async function processTask(taskId: string, organizationId: string, workerId = `worker_${crypto.randomUUID()}`, runtimeEnv?: unknown) {
   const claimed = await claimTask(taskId, organizationId, workerId);
   if (!claimed) return { claimed: false, task: await getTask(taskId, organizationId) };
 
-  const model = getModelAdapter();
+  const model = getModelAdapter(runtimeEnv);
   const agents = await listAgents(organizationId);
   const agentMap = new Map(agents.map((agent) => [agent.id, agent]));
   const db = createAdminClient();
@@ -98,6 +99,12 @@ export async function processTask(taskId: string, organizationId: string, worker
         const step = snapshot.steps.find((item) => item.id === stepId);
         stepBudget.set(stepId, agentMap.get(step?.agent_id ?? "")?.budgetCents ?? 0);
       }
+      await appendEvent(taskId, organizationId, "task.progress", {
+        iteration: iterations,
+        readySteps: ready.length,
+        completedSteps: snapshot.steps.filter((step) => step.plan_revision === snapshot.plan_revision && step.status === "verified").length,
+        remainingBudget,
+      });
       const batch = selectParallelBatch(ready, stepBudget, remainingBudget);
       if (batch.length === 0) {
         const message = `No ready step fits the remaining task budget (${remainingBudget} cents)`;
@@ -284,18 +291,94 @@ async function runStep(input: {
     const citations: NonNullable<ModelResult["citations"]> = [];
 
     for (let turn = 1; turn <= maxTurns; turn++) {
-      const result = await model.complete({
-        system,
-        inputItems: pendingInput,
-        model: modelName,
-        tools,
-        outputSchema: step.kind === "verification" ? VERIFICATION_OUTPUT_SCHEMA : null,
-        reasoningEffort,
-        verbosity: step.kind === "verification" ? "low" : "medium",
-      });
+      const modelStartedAt = new Date().toISOString();
+      const modelStartedMs = Date.now();
+      let result: ModelResult;
+      try {
+        result = await model.complete({
+          system,
+          inputItems: pendingInput,
+          model: modelName,
+          tools,
+          outputSchema: step.kind === "verification" ? VERIFICATION_OUTPUT_SCHEMA : null,
+          reasoningEffort,
+          verbosity: step.kind === "verification" ? "low" : "medium",
+        });
+      } catch (error) {
+        const finishedAt = new Date().toISOString();
+        await safeRecordExecutionMetric({
+          organizationId,
+          taskId,
+          stepId: step.id,
+          agentId: agent.id,
+          provider: model.provider ?? "unknown",
+          model: modelName,
+          attempt,
+          turn,
+          status: "failed",
+          startedAt: modelStartedAt,
+          completedAt: finishedAt,
+          latencyMs: Date.now() - modelStartedMs,
+          errorClass: classifyExecutionError(error),
+          metadata: { specialization: getAgentSpecialization(agent, step.kind).role },
+        });
+        await appendEvent(taskId, organizationId, "model.failed", {
+          stepId: step.id,
+          agentId: agent.id,
+          model: modelName,
+          turn,
+          provider: model.provider ?? null,
+          latencyMs: Date.now() - modelStartedMs,
+          errorClass: classifyExecutionError(error),
+        });
+        throw error;
+      }
+
+      const modelFinishedAt = new Date().toISOString();
+      const modelLatencyMs = Date.now() - modelStartedMs;
       lastModel = result;
       totalUsageCents += result.usageCents;
       citations.push(...(result.citations ?? []));
+
+      await safeRecordExecutionMetric({
+        organizationId,
+        taskId,
+        stepId: step.id,
+        agentId: agent.id,
+        provider: result.provider ?? model.provider ?? "unknown",
+        model: result.model ?? modelName,
+        attempt,
+        turn,
+        status: "completed",
+        startedAt: modelStartedAt,
+        completedAt: modelFinishedAt,
+        latencyMs: modelLatencyMs,
+        inputTokens: result.inputTokens,
+        cachedInputTokens: result.cachedInputTokens,
+        outputTokens: result.outputTokens,
+        usageCents: result.usageCents,
+        resourceUnit: result.resourceUsage?.unit ?? null,
+        resourceQuantity: result.resourceUsage?.actual ?? result.resourceUsage?.estimated ?? null,
+        fallbackFromProvider: result.fallbackFrom?.provider ?? null,
+        fallbackFromModel: result.fallbackFrom?.model ?? null,
+        metadata: {
+          specialization: getAgentSpecialization(agent, step.kind).role,
+          toolCallCount: result.functionCalls?.length ?? 0,
+        },
+      });
+
+      if (result.fallbackFrom) {
+        await appendEvent(taskId, organizationId, "model.fallback", {
+          stepId: step.id,
+          agentId: agent.id,
+          turn,
+          fromProvider: result.fallbackFrom.provider,
+          fromModel: result.fallbackFrom.model ?? modelName,
+          toProvider: result.provider ?? "unknown",
+          toModel: result.model ?? modelName,
+          reason: result.fallbackFrom.reason,
+        });
+      }
 
       await recordUsage(step.id, result.usageCents);
       const metering = await recordEnterpriseUsage({
@@ -461,6 +544,31 @@ async function runStep(input: {
     await updateTask(taskId, { status: "running", error: `Step ${step.agent_id} failed: ${message}` });
     await appendEvent(taskId, organizationId, "step.failed", { stepId: step.id, error: message, attempt });
     return { stepId: step.id, status: "failed", usageCents: 0 };
+  }
+}
+
+
+function classifyExecutionError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (/timeout|timed out/i.test(message)) return "timeout";
+  if (/429|rate limit|capacity|busy/i.test(message)) return "capacity";
+  if (/quota|allocation/i.test(message)) return "quota";
+  if (/forbidden|authentication failed|unauthorized/i.test(message)) return "auth";
+  if (/budget|ceiling/i.test(message)) return "budget";
+  if (/structured output|invalid json|verifier/i.test(message)) return "contract";
+  return "runtime";
+}
+
+async function safeRecordExecutionMetric(input: Parameters<typeof recordExecutionMetric>[0]) {
+  try {
+    await recordExecutionMetric(input);
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "ops.metric_record_failed",
+      taskId: input.taskId,
+      stepId: input.stepId ?? null,
+      error: error instanceof Error ? error.message.slice(0, 200) : "unknown",
+    }));
   }
 }
 
