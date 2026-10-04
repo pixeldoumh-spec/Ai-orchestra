@@ -67,6 +67,21 @@ create index if not exists evidence_packets_document_idx
 create index if not exists evidence_packets_source_idx
   on public.evidence_packets(organization_id,source_type,created_at desc);
 
+alter table public.connector_requests
+  add column if not exists input_ciphertext text,
+  add column if not exists input_iv text,
+  add column if not exists input_auth_tag text,
+  add column if not exists input_key_version integer,
+  add column if not exists action_method text,
+  add column if not exists action_path text;
+
+alter table public.connector_requests
+  add constraint connector_requests_input_key_version_ck
+  check(input_key_version is null or input_key_version>=1);
+
+create index if not exists connector_requests_execution_idx
+  on public.connector_requests(organization_id,status,expires_at);
+
 alter table public.organization_knowledge_bases enable row level security;
 alter table public.knowledge_documents enable row level security;
 alter table public.evidence_packets enable row level security;
