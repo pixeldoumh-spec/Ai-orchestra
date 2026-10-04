@@ -19,10 +19,11 @@ export async function getOrganizationForUser(db: Db, userId: string, requestedId
   const first = data?.[0] as {
     organization_id: string;
     role: string;
-    organizations?: Array<{ id: string; name: string }> | null;
+    organizations?: { id: string; name: string } | Array<{ id: string; name: string }> | null;
   } | undefined;
 
-  const organization = first?.organizations?.[0];
+  const related = first?.organizations;
+  const organization = Array.isArray(related) ? related[0] : related;
   if (!first || !organization) return null;
   return { id: first.organization_id, name: organization.name, role: first.role };
 }
