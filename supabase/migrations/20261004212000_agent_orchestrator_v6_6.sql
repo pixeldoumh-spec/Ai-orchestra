@@ -6,6 +6,7 @@ alter table public.tasks
     check (execution_mode in ('background','inline')),
   add column if not exists dispatch_count integer not null default 0 check (dispatch_count >= 0),
   add column if not exists last_dispatched_at timestamptz,
+  add column if not exists last_dispatch_id text,
   add column if not exists last_heartbeat_at timestamptz,
   add column if not exists last_worker_id text;
 
@@ -188,6 +189,31 @@ $$;
 
 revoke all on function public.get_operations_dashboard(uuid,timestamptz) from public, anon, authenticated;
 grant execute on function public.get_operations_dashboard(uuid,timestamptz) to service_role;
+
+create or replace function public.mark_task_dispatched(
+  p_task_id text,
+  p_dispatch_id text
+)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $
+  update public.tasks
+  set dispatch_count = dispatch_count + 1,
+      last_dispatched_at = now(),
+      last_dispatch_id = p_dispatch_id
+  where id = p_task_id
+  returning jsonb_build_object(
+    'task_id', id,
+    'dispatch_count', dispatch_count,
+    'last_dispatched_at', last_dispatched_at,
+    'last_dispatch_id', last_dispatch_id
+  );
+$;
+
+revoke all on function public.mark_task_dispatched(text,text) from public, anon, authenticated;
+grant execute on function public.mark_task_dispatched(text,text) to service_role;
 
 comment on table public.task_execution_metrics is 'Append-only V6.6 model execution telemetry. Never stores prompts, outputs or secrets.';
 comment on table public.background_worker_runs is 'Durable background dispatch attempt telemetry for V6.6 operations.';
