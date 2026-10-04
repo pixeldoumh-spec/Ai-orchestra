@@ -117,6 +117,7 @@ export interface ModelResult {
   resourceUsage?: {
     unit: "neurons";
     estimated: number | null;
+    actual?: number | null;
   };
   responseId?: string;
   responseItems?: unknown[];
