@@ -36,7 +36,7 @@ create table if not exists public.task_execution_metrics (
   output_tokens bigint not null default 0 check (output_tokens >= 0),
   usage_cents bigint not null default 0 check (usage_cents >= 0),
   resource_unit text,
-  resource_quantity bigint,
+  resource_quantity numeric(18,4),
   fallback_from_provider text,
   fallback_from_model text,
   error_class text,
