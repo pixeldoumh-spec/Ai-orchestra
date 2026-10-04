@@ -3,12 +3,28 @@
   "name": "ai-orchestra",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-10-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "assets": {"directory": ".open-next/assets", "binding": "ASSETS"},
-  "services": [{"binding": "WORKER_SELF_REFERENCE", "service": "ai-orchestra"}],
-  "images": {"binding": "IMAGES"},
-  "observability": {"enabled": true},
-  "ai": {"binding": "AI"},
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "ai-orchestra"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
     "SUPABASE_URL": "https://bpkrqfohfgdchkgxideb.supabase.co",
     "NEXT_PUBLIC_SUPABASE_URL": "https://bpkrqfohfgdchkgxideb.supabase.co",
@@ -33,14 +49,19 @@
     "ENTERPRISE_DEFAULT_REGION": "ap-south-1",
     "AI_FALLBACK_ENABLED": "true",
     "AI_FALLBACK_PROVIDER": "workers_ai",
-    "AI_FALLBACK_MODEL": "@cf/zai-org/glm-4.7-flash",
+    "AI_FALLBACK_MODEL": "@cf/qwen/qwen3.8-27b",
     "BACKGROUND_DISPATCH_LIMIT": "12",
-    "TASK_STREAM_MAX_MS": "240000"
+    "TASK_STREAM_MAX_MS": "240000",
+    "BACKGROUND_WORKER_SECRET": "set-as-secret"
   },
   "workers_dev": true,
   "preview_urls": false,
   "queues": {
-    "producers": [{"binding": "TASK_QUEUE", "queue": "ai-orchestra-tasks-v66"}],
-    "consumers": [{"queue": "ai-orchestra-tasks-v66", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 3, "dead_letter_queue": "ai-orchestra-tasks-v66-dlq"}]
+    "producers": [
+      {
+        "binding": "TASK_QUEUE",
+        "queue": "ai-orchestra-tasks-v66"
+      }
+    ]
   }
 }
