@@ -198,7 +198,7 @@ returns jsonb
 language sql
 security definer
 set search_path = public
-as $
+as $v66$
   update public.tasks
   set dispatch_count = dispatch_count + 1,
       last_dispatched_at = now(),
@@ -210,7 +210,7 @@ as $
     'last_dispatched_at', last_dispatched_at,
     'last_dispatch_id', last_dispatch_id
   );
-$;
+$v66$;
 
 revoke all on function public.mark_task_dispatched(text,text) from public, anon, authenticated;
 grant execute on function public.mark_task_dispatched(text,text) to service_role;
