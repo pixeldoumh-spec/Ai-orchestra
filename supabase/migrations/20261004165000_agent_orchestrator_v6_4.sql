@@ -42,7 +42,7 @@ create trigger agent_network_policy_touch before update on public.agent_network_
 for each row execute function public.touch_agent_network_policy();
 
 alter table public.agent_network_messages
-  add column if not exists task_id uuid null references public.tasks(id) on delete cascade,
+  add column if not exists task_id text null references public.tasks(id) on delete cascade,
   add column if not exists step_id text null,
   add column if not exists root_message_id text null,
   add column if not exists delegation_depth integer not null default 0,
@@ -63,7 +63,7 @@ create index if not exists agent_network_messages_delivery_idx
   on public.agent_network_messages(organization_id, target_agent_id, status, priority desc, available_at);
 
 alter table public.agent_network_events
-  add column if not exists task_id uuid null references public.tasks(id) on delete cascade;
+  add column if not exists task_id text null references public.tasks(id) on delete cascade;
 
 drop trigger if exists agent_network_message_admission on public.agent_network_messages;
 drop trigger if exists agent_network_message_admission_v64 on public.agent_network_messages;
