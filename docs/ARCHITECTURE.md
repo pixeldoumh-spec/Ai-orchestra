@@ -58,3 +58,16 @@ Organization policy bounds whether the network is enabled, whether autonomous de
 Delegations are durable network messages. The sender emits a signed `delegation` message, the recipient is atomically claimed through a database RPC, the delegated specialist executes with a bounded prompt and no inherited hidden authority, and a signed `response` message is emitted using the original correlation and reply chain. Success/failure is acknowledged on the original message and task events capture the delegation lifecycle.
 
 V6.4 deliberately keeps delegated execution bounded to the target agent's declared model and budget. Nested tool execution is not inherited by the delegated worker, preventing recursive delegation/tool amplification. Existing connector approvals, enterprise admission, task budgets and independent verification remain authoritative.
+
+
+## V6.5 workspace knowledge plane
+
+The workspace knowledge plane has two durable source classes: tenant workspace documents and durable workspace memories. Documents stay in the private Supabase Storage bucket and retain the V6.2 provider file/vector-store metadata. Text-like documents are additionally normalized, chunked and embedded into a tenant-owned PostgreSQL vector index. Memories are stored as immutable content rows with soft deletion, source provenance, confidence/importance metadata and optional private visibility.
+
+Semantic retrieval runs through a server-only RPC with an explicit organization id and authenticated user id. Document chunks require a live document in the same organization. Memory chunks require an active, unexpired memory in the same organization; private memories additionally require the requesting user to be the owner. This is a second tenant boundary in the data layer, independent of route-level organization resolution.
+
+Automatic task grounding retrieves workspace-only knowledge for every agent step and injects only bounded source content as untrusted context. It never includes private memories. Agents also receive the permission-gated knowledge.search tool for targeted retrieval. Manual workspace search can optionally include the authenticated user's private memories.
+
+Cloudflare Workers AI provides the embedding model for the local semantic layer. The current implementation uses bge-base-en-v1.5 with 768-dimensional vectors and CLS pooling. The production Workers AI model execution and the application-owned knowledge retrieval plane are separate concerns: retrieval does not depend on OpenAI hosted file_search.
+
+Retrieval telemetry stores a SHA-256 query hash plus bounded source counts. Raw queries and private credentials are not persisted in the telemetry record.
