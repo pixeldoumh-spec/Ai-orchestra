@@ -87,7 +87,7 @@ begin
       where i.indrelid = fk.conrelid
         and i.indisvalid
         and i.indisready
-        and not i.indispartial
+        and i.indpred is null
         and i.indnkeyatts >= array_length(fk.conkey, 1)
         and (i.indkey::int2[])[1:array_length(fk.conkey, 1)] = fk.conkey
     ) then
