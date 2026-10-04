@@ -50,7 +50,9 @@ create table if not exists public.evidence_packets(
   document_id uuid references public.knowledge_documents(id) on delete set null,
   connector_id uuid references public.connectors(id) on delete set null,
   external_ref text,
+  claim text,
   excerpt text check(excerpt is null or char_length(excerpt)<=4000),
+  captured_at timestamptz not null default now(),
   content_hash text check(content_hash is null or char_length(content_hash)=64),
   confidence numeric(5,4) check(confidence is null or (confidence>=0 and confidence<=1)),
   citation_index integer check(citation_index is null or citation_index>=0),
@@ -81,6 +83,10 @@ alter table public.connector_requests
 
 create index if not exists connector_requests_execution_idx
   on public.connector_requests(organization_id,status,expires_at);
+
+alter table public.connector_requests drop constraint if exists connector_requests_status_check;
+alter table public.connector_requests add constraint connector_requests_status_check
+  check(status in('prepared','approved','executing','denied','executed','failed','expired'));
 
 alter table public.organization_knowledge_bases enable row level security;
 alter table public.knowledge_documents enable row level security;
