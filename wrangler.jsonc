@@ -46,8 +46,21 @@
     "TASK_LEASE_SECONDS": "600",
     "APPROVAL_TTL_SECONDS": "1800",
     "CREDENTIAL_ACTIVE_KEY_VERSION": "1",
-    "ENTERPRISE_DEFAULT_REGION": "ap-south-1"
+    "ENTERPRISE_DEFAULT_REGION": "ap-south-1",
+    "AI_FALLBACK_ENABLED": "true",
+    "AI_FALLBACK_PROVIDER": "workers_ai",
+    "AI_FALLBACK_MODEL": "@cf/zai-org/glm-4.7-flash",
+    "BACKGROUND_DISPATCH_LIMIT": "12",
+    "TASK_STREAM_MAX_MS": "240000"
   },
   "workers_dev": true,
-  "preview_urls": false
+  "preview_urls": false,
+  "queues": {
+    "producers": [
+      {
+        "binding": "TASK_QUEUE",
+        "queue": "ai-orchestra-tasks-v66"
+      }
+    ]
+  }
 }
