@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { prepareConnectorRequest, recordToolInvocation } from "@/lib/connectors/repository";
 import { hashJson } from "@/lib/vault/crypto";
 import { acknowledgeNetworkMessage, claimNetworkMessages, sendAgentMessage } from "@/lib/network/repository";
+import { executeConnectorRequest } from "@/lib/connectors/executor";
 
 export const builtinTools: ToolDefinition[] = [
   { id: "time.now", name: "Current time", description: "Returns server time in ISO format.", permission: "time.read", risk: "low" },
@@ -11,7 +12,7 @@ export const builtinTools: ToolDefinition[] = [
   { id: "agent.message.send", name: "Send agent message", description: "Send a signed message to a trusted peer agent.", permission: "network.send", risk: "medium" },
   { id: "agent.message.receive", name: "Receive agent messages", description: "Claim queued messages from this agent's durable inbox.", permission: "network.receive", risk: "low" },
   { id: "agent.message.ack", name: "Acknowledge agent message", description: "Acknowledge or fail a delivered peer message.", permission: "network.ack", risk: "low" },
-  { id: "external.action", name: "External action", description: "Prepare an external side effect through the signed connector and approval pipeline.", permission: "external.execute", risk: "high" },
+  { id: "external.action", name: "External action", description: "Prepare and, after approval, execute an HTTP action through the signed connector bound to this agent.", permission: "external.execute", risk: "high" },
 ];
 
 const nullableString = () => ({ anyOf: [{ type: "string" }, { type: "null" }] });
@@ -107,7 +108,53 @@ export async function invokeTool(agent: AgentDefinition, taskId: string, invocat
 
   if (requiresApproval(tool.risk)) {
     const prepared = await prepareConnectorRequest({ organizationId: agent.organizationId, taskId, stepId, agent, toolInvocation: invocation });
-    await recordToolInvocation({ organizationId: agent.organizationId, taskId, stepId, agentId: agent.id, toolId: invocation.toolId, invocation, status: "approval_required", connectorRequestId: prepared.id, result: { output: null, approved: false } });
+    if (prepared.reuseApproved) {
+      try {
+        const executed = await executeConnectorRequest({
+          organizationId: agent.organizationId,
+          connectorRequestId: prepared.id,
+          actor: agent.id,
+        });
+        const result = { output: executed, approved: true, requestId: prepared.request_id, connectorRequestId: prepared.id, connectorId: prepared.connector_id };
+        await recordToolInvocation({
+          organizationId: agent.organizationId,
+          taskId,
+          stepId,
+          agentId: agent.id,
+          toolId: invocation.toolId,
+          invocation,
+          status: "executed",
+          connectorRequestId: prepared.id,
+          result,
+        });
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Connector execution failed";
+        await recordToolInvocation({
+          organizationId: agent.organizationId,
+          taskId,
+          stepId,
+          agentId: agent.id,
+          toolId: invocation.toolId,
+          invocation,
+          status: "failed",
+          connectorRequestId: prepared.id,
+          result: { output: { error: message } },
+        });
+        throw error;
+      }
+    }
+    await recordToolInvocation({
+      organizationId: agent.organizationId,
+      taskId,
+      stepId,
+      agentId: agent.id,
+      toolId: invocation.toolId,
+      invocation,
+      status: "approval_required",
+      connectorRequestId: prepared.id,
+      result: { output: null, approved: false },
+    });
     return {
       output: { prepared: true, connectorId: prepared.connector_id, requestId: prepared.request_id, expiresAt: prepared.expires_at },
       approved: false,
