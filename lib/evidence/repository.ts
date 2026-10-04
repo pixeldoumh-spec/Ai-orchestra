@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { hashJson } from "@/lib/vault/crypto";
 
 export type EvidenceSourceType = "web" | "document" | "connector";
 
