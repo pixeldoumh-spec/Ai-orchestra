@@ -203,7 +203,7 @@ export async function retrieveWorkspaceKnowledge(input: {
     const embedding = await embedText(query);
     const { data, error } = await db.rpc("search_workspace_knowledge", {
       p_organization_id: input.organizationId,
-      p_user_id: input.workspaceOnly ? null : input.userId,
+      p_user_id: input.userId,
       p_query_embedding: vectorLiteral(embedding),
       p_limit: Math.max(1, Math.min(50, input.limit ?? 8)),
     });
@@ -214,7 +214,7 @@ export async function retrieveWorkspaceKnowledge(input: {
 
   const { data: memories, error } = await db.rpc("search_workspace_memory", {
     p_organization_id: input.organizationId,
-    p_user_id: input.workspaceOnly ? null : input.userId,
+    p_user_id: input.userId,
     p_query: query,
     p_limit: Math.max(1, Math.min(50, input.limit ?? 8)),
   });
