@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createEvidencePacket } from "@/lib/evidence/repository";
 import { completeToolInvocationForConnectorRequest, updateConnectorRequestStatus } from "./repository";
 import { decryptSecret, hashJson } from "@/lib/vault/crypto";
+import { sanitizeConnectorUrl, sanitizeConnectorText } from "./safety";
 import type { ToolResult } from "@/lib/orchestrator/types";
 
 const MAX_RESPONSE_BYTES = Math.min(
@@ -29,14 +30,6 @@ function parseAction(raw: unknown): { method: string; path: string } {
     throw new Error("External action path is not a normalized relative connector path");
   }
   return { method: match[1].toUpperCase(), path };
-}
-
-function sanitizeEvidenceText(value: string): string {
-  return value
-    .replace(/(authorization\s*:\s*bearer\s+)[^\s,;]+/gi, "$1[redacted]")
-    .replace(/(x-api-key\s*:\s*)[^\s,;]+/gi, "$1[redacted]")
-    .replace(/(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)["']?\s*[:=]\s*["'])[^"']+(["'])/gi, "$1[redacted]$2")
-    .slice(0, 4000);
 }
 
 async function readBoundedBody(response: Response): Promise<string> {
@@ -342,11 +335,11 @@ export async function executePreparedConnectorRequest(input: {
       stepId: request.step_id,
       agentId: request.agent_id,
       sourceType: "connector",
-      sourceUrl: target.toString(),
+      sourceUrl: sanitizeConnectorUrl(target.toString()),
       sourceTitle: typeof connector.name === "string" ? connector.name : "Connector",
       connectorId: connector.id,
       externalRef: request.request_id,
-      excerpt: sanitizeEvidenceText(responseBody),
+      excerpt: sanitizeConnectorText(responseBody),
       contentHash,
       confidence: response.ok ? 1 : 0,
       metadata: {
