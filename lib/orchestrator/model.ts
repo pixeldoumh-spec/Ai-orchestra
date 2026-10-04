@@ -355,14 +355,89 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
   }
 }
 
-export function getModelAdapter(): ModelAdapter {
-  const provider = (process.env.AI_MODEL_PROVIDER ?? "mock").trim().toLowerCase();
+
+
+function normalizeProvider(value: string | undefined | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function isFallbackEligible(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /timeout|timed out|capacity|busy|429|rate limit|quota|allocation|provider error|temporarily unavailable|forbidden|authentication failed|paid plan|required/i.test(message);
+}
+
+function fallbackReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "provider failure");
+  return message.slice(0, 240);
+}
+
+class FallbackModelAdapter implements ModelAdapter {
+  readonly provider?: string;
+  private readonly primary: ModelAdapter;
+  private readonly fallback: ModelAdapter;
+  private readonly fallbackModel: string | null;
+
+  constructor(primary: ModelAdapter, fallback: ModelAdapter, fallbackModel: string | null) {
+    this.primary = primary;
+    this.fallback = fallback;
+    this.fallbackModel = fallbackModel;
+    this.provider = primary.provider;
+  }
+
+  supportsTool(type: ModelTool["type"]): boolean {
+    return this.primary.supportsTool?.(type) ?? true;
+  }
+
+  async complete(input: ModelCompleteInput): Promise<ModelResult> {
+    try {
+      return await this.primary.complete(input);
+    } catch (error) {
+      if (!this.fallbackModel || !isFallbackEligible(error)) throw error;
+      const primaryModel = input.model ?? null;
+      if (primaryModel && primaryModel === this.fallbackModel) throw error;
+
+      const result = await this.fallback.complete({
+        ...input,
+        model: this.fallbackModel,
+      });
+      return {
+        ...result,
+        fallbackFrom: {
+          provider: this.primary.provider ?? "unknown",
+          model: primaryModel,
+          reason: fallbackReason(error),
+        },
+      };
+    }
+  }
+}
+
+function createProviderAdapter(provider: string, runtimeEnv?: unknown): ModelAdapter {
   if (provider === "openai") return new OpenAIResponsesAdapter();
   if (provider === "cloudflare_workers_ai" || provider === "workers_ai" || provider === "cloudflare-ai") {
-    return new CloudflareWorkersAIAdapter();
+    return new CloudflareWorkersAIAdapter(runtimeEnv);
   }
   if (provider === "mock") return new MockModelAdapter();
   throw new Error(`Unsupported AI_MODEL_PROVIDER: ${provider}`);
+}
+
+export function getModelAdapter(runtimeEnv?: unknown): ModelAdapter {
+  const provider = normalizeProvider(process.env.AI_MODEL_PROVIDER) || "mock";
+  const primary = createProviderAdapter(provider, runtimeEnv);
+
+  const fallbackEnabled = (process.env.AI_FALLBACK_ENABLED ?? "true").trim().toLowerCase() !== "false";
+  const fallbackProvider = normalizeProvider(process.env.AI_FALLBACK_PROVIDER);
+  const fallbackModel = process.env.AI_FALLBACK_MODEL?.trim() || null;
+  if (!fallbackEnabled || !fallbackProvider || !fallbackModel || fallbackProvider === provider && fallbackModel === (process.env.WORKERS_AI_MODEL?.trim() || null)) {
+    return primary;
+  }
+
+  try {
+    const fallback = createProviderAdapter(fallbackProvider, runtimeEnv);
+    return new FallbackModelAdapter(primary, fallback, fallbackModel);
+  } catch {
+    return primary;
+  }
 }
 
 export function getDefaultModel(role: "planner" | "agent" | "verifier"): string {

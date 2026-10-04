@@ -125,6 +125,11 @@ export interface ModelResult {
   citations?: ModelCitation[];
   model?: string;
   status?: string;
+  fallbackFrom?: {
+    provider: string;
+    model?: string | null;
+    reason: string;
+  };
 }
 
 export interface ModelAdapter {

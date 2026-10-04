@@ -47,6 +47,7 @@ export async function createTask(input: {
     replan_count: 0,
     planner_model: input.plannerModel ?? null,
     plan_json: input.plan,
+    execution_mode: "background",
   }).select("*").single();
 
   if (error) {
@@ -63,7 +64,7 @@ export async function createTask(input: {
     await db.from("tasks").delete().eq("id", taskId);
     throw new Error(stepError.message);
   }
-  await appendEvent(taskId, input.organizationId, "task.queued", { goal: input.goal, planVersion: "v5.0.0", stepCount: input.plan.steps.length });
+  await appendEvent(taskId, input.organizationId, "task.queued", { goal: input.goal, planVersion: "v6.6.0", stepCount: input.plan.steps.length, executionMode: "background" });
   await appendEvent(taskId, input.organizationId, "plan.created", { planVersion: "v4.0.0", revision: 1, rationale: input.plan.rationale ?? null });
   return data;
 }
@@ -74,7 +75,7 @@ export async function getTask(taskId: string, organizationId: string) {
   if (error) throw new Error(error.message);
   const { data: steps, error: stepError } = await db.from("task_steps").select("*").eq("task_id", taskId).order("created_at", { ascending: true });
   if (stepError) throw new Error(stepError.message);
-  const { data: events, error: eventError } = await db.from("task_events").select("*").eq("task_id", taskId).order("created_at", { ascending: true }).limit(400);
+  const { data: events, error: eventError } = await db.from("task_events").select("*").eq("task_id", taskId).order("id", { ascending: true }).limit(400);
   if (eventError) throw new Error(eventError.message);
   const { data: artifacts } = await db.from("task_artifacts").select("id, name, content, created_at").eq("task_id", taskId).order("created_at", { ascending: true });
   const { data: approvals } = await db.from("approvals").select("id, step_id, status, action_type, reason, resolved_by, resolved_at, created_at, expires_at, connector_request_id").eq("task_id", taskId).order("created_at", { ascending: true });
@@ -94,7 +95,7 @@ export async function claimTask(taskId: string, organizationId: string, workerId
   const now = new Date().toISOString();
   const until = new Date(Date.now() + leaseSeconds * 1000).toISOString();
   const { data, error } = await db.from("tasks")
-    .update({ status: "running", lease_owner: workerId, lease_until: until, started_at: new Date().toISOString() })
+    .update({ status: "running", lease_owner: workerId, lease_until: until, started_at: new Date().toISOString(), last_heartbeat_at: new Date().toISOString(), last_worker_id: workerId })
     .eq("id", taskId)
     .eq("organization_id", organizationId)
     .in("status", ["queued", "running"])
@@ -112,7 +113,12 @@ export async function claimTask(taskId: string, organizationId: string, workerId
 export async function heartbeatTask(taskId: string, workerId: string) {
   const db = createAdminClient();
   const leaseSeconds = Number(process.env.TASK_LEASE_SECONDS ?? "600");
-  const { error } = await db.from("tasks").update({ lease_until: new Date(Date.now() + leaseSeconds * 1000).toISOString() }).eq("id", taskId).eq("lease_owner", workerId);
+  const now = new Date().toISOString();
+  const { error } = await db.from("tasks").update({
+    lease_until: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
+    last_heartbeat_at: now,
+    last_worker_id: workerId,
+  }).eq("id", taskId).eq("lease_owner", workerId);
   if (error) throw new Error(error.message);
 }
 
