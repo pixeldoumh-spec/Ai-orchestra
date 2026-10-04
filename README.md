@@ -154,6 +154,66 @@ The network is protected by tenant policy, explicit source→target trust edges,
 The live network surface is `/network`; policy administration is available to owner/admin roles. Autonomous delegation never inherits hidden authority or connector side effects from the parent agent, and final task verification remains mandatory.
 
 
+
+
+## V6.6 — Production Operations
+
+V6.6 moves task execution from browser-bound work into a durable production execution plane.
+
+### Execution lifecycle
+
+Goal
+→ authenticated task creation
+→ tenant admission
+→ durable queue dispatch
+→ background consumer
+→ leased task execution
+→ parallel model turns
+→ append-only execution telemetry
+→ verified result.
+
+The browser receives replayable Server-Sent Events from `/api/tasks/:id/stream`. Each durable task event is followed by a fresh task snapshot so reconnects can recover current step state without depending on client-local state. Numeric event IDs support Last-Event-ID replay.
+
+### Background workers
+
+The production queue is `ai-orchestra-tasks-v66` with a dedicated dead-letter queue `ai-orchestra-tasks-v66-dlq`. The separate `ai-orchestra-background` Worker consumes batches with bounded concurrency, retries failed deliveries and forwards stale work through a once-per-minute cron redrive. Task leases remain the final concurrency guard, so duplicate queue delivery does not create duplicate execution.
+
+Transient worker failures are put back into the durable task queue with a bounded retry timestamp. The queue consumer returns a retryable HTTP status for those failures instead of silently acknowledging them.
+
+### Model fallback
+
+The primary production model remains `@cf/openai/gpt-oss-20b`. V6.6 can fall back to `@cf/qwen/qwen3.8-27b` on the same Workers AI provider for eligible capacity, timeout, rate-limit or allocation failures. Fallback provenance is stored with execution telemetry and task events. Workers AI daily-allocation state is tracked per model so exhausting the primary model does not suppress a configured secondary model.
+
+Cloudflare documents Qwen 3.8 27B as supporting reasoning and function calling, which makes it suitable for the bounded multi-turn agent runtime. citeturn97db358bc83494903664f6b183512d737c86a983200462865165b4092cd327turnfe8b780e2b22a27ba196a176e8cda4acf4b9f6193a9c31d7981157f8df580841
+
+### Observability
+
+Each model turn records provider, model, attempt, turn, latency, input/output/cached tokens, monetary usage, Workers AI resource quantity when available, fallback provenance and bounded error classification. Task-level execution progress is emitted as normal durable task events. Cloudflare Worker observability remains enabled for runtime logs and invocation visibility.
+
+The telemetry tables intentionally do not store prompts, raw outputs, secrets or hidden chain-of-thought.
+
+### Usage dashboard
+
+The Enterprise/Operations surface now shows tenant-scoped model calls, success rate, fallback rate, p50/p95 latency, token volume, Workers AI neuron usage, worker p95 latency, daily execution volume and per-model reliability. PostgreSQL calculates the aggregates inside a security-definer function and grants execution only to the server service role.
+
+### Production configuration
+
+Main Worker:
+- `TASK_QUEUE` producer → `ai-orchestra-tasks-v66`
+- `AI_FALLBACK_ENABLED=true`
+- `AI_FALLBACK_PROVIDER=workers_ai`
+- `AI_FALLBACK_MODEL=@cf/qwen/qwen3.8-27b`
+
+Background Worker:
+- `ai-orchestra-background`
+- queue consumer max batch size 4
+- max concurrency 3
+- max retries 5
+- dead-letter queue enabled
+- cron `* * * * *`
+
+Both production workers keep `BACKGROUND_WORKER_SECRET` as a runtime secret; it is never checked into Wrangler configuration.
+
 ## V6.5 — Workspace Knowledge
 
 V6.5 turns the V6.2 document registry into a provider-aware workspace knowledge plane.
