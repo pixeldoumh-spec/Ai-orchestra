@@ -13,7 +13,8 @@
     "test:core": "npm run build:core && node --test tests/core.test.mjs",
     "build:core": "tsc -p tsconfig.core.json",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "build:cloudflare": "opennextjs-cloudflare build"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
