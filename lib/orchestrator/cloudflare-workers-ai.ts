@@ -27,7 +27,13 @@ function endOfUtcDayMs(now = Date.now()): number {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1);
 }
 
-function getWorkersAI(): WorkersAI {
+function getWorkersAI(runtimeEnv?: unknown): WorkersAI {
+  const direct = runtimeEnv && typeof runtimeEnv === "object"
+    ? (runtimeEnv as { AI?: unknown }).AI
+    : undefined;
+  if (direct && typeof direct === "object" && typeof (direct as { run?: unknown }).run === "function") {
+    return direct as WorkersAI;
+  }
   const context = getCloudflareContext();
   const ai = (context.env as { AI?: unknown }).AI;
   if (!ai || typeof ai !== "object" || typeof (ai as { run?: unknown }).run !== "function") {
@@ -189,6 +195,11 @@ function isErrorEnvelope(value: unknown): boolean {
 
 export class CloudflareWorkersAIAdapter implements ModelAdapter {
   readonly provider = "cloudflare_workers_ai";
+  private readonly runtimeEnv?: unknown;
+
+  constructor(runtimeEnv?: unknown) {
+    this.runtimeEnv = runtimeEnv;
+  }
 
   supportsTool(type: ModelTool["type"]): boolean {
     return type === "function";
@@ -200,7 +211,7 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
     }
 
     const model = modelForInput(input);
-    const ai = getWorkersAI();
+    const ai = getWorkersAI(this.runtimeEnv);
     const maxTokens = maxOutputTokens();
     const request: Record<string, unknown> = {
       model,
