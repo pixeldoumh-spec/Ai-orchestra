@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { listAgents } from "./registry";
-import { getModelAdapter } from "./model";
+import { getDefaultModel, getModelAdapter } from "./model";
 import { planWorkflow } from "./planner";
 import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, updateStep, updateTask } from "./repository";
 import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, PersistedTask } from "./types";
@@ -29,10 +29,11 @@ const VERIFICATION_OUTPUT_SCHEMA = {
 } as const;
 
 function resolveAgentModel(agent: AgentDefinition, stepKind: "work" | "verification"): string {
-  if (stepKind === "verification") {
-    return process.env.AI_VERIFIER_MODEL ?? process.env.AI_PLANNER_MODEL ?? "gpt-5.5";
-  }
-  return agent.model ?? process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
+  if (stepKind === "verification") return getDefaultModel("verifier");
+  const provider = (process.env.AI_MODEL_PROVIDER ?? "mock").trim().toLowerCase();
+  const cloudflare = provider === "cloudflare_workers_ai" || provider === "workers_ai" || provider === "cloudflare-ai";
+  if (agent.model && (!cloudflare || agent.model.startsWith("@cf/"))) return agent.model;
+  return getDefaultModel("agent");
 }
 
 function resolveReasoningEffort(stepKind: "work" | "verification"): "none" | "low" | "medium" | "high" | "xhigh" {
@@ -153,7 +154,7 @@ export async function processTask(taskId: string, organizationId: string, worker
           organizationId,
           plan: replacementPlan,
           reason,
-          plannerModel: process.env.AI_PLANNER_MODEL ?? process.env.OPENAI_MODEL ?? null,
+          plannerModel: getDefaultModel("planner"),
         });
         continue;
       }
@@ -214,9 +215,17 @@ async function runStep(input: {
   ].join("\n");
 
   try {
+    const nativeTools = getModelTools(agent);
+    const supportsHostedTools = !model.supportsTool
+      || model.supportsTool("web_search")
+      || model.supportsTool("file_search");
+    const hostedTools = supportsHostedTools ? await getHostedModelTools(organizationId, agent) : [];
     const tools = step.kind === "verification"
       ? []
-      : [...getModelTools(agent), ...(await getHostedModelTools(organizationId, agent))];
+      : [
+          ...nativeTools,
+          ...hostedTools.filter((tool) => !model.supportsTool || model.supportsTool(tool.type)),
+        ];
     const modelName = resolveAgentModel(agent, step.kind);
     const reasoningEffort = resolveReasoningEffort(step.kind);
     const maxTurns = Math.min(MAX_MODEL_TURNS, Math.max(1, Number(process.env.AI_MAX_TOOL_TURNS ?? "8")));
@@ -270,6 +279,8 @@ async function runStep(input: {
         outputTokens: result.outputTokens,
         usageCents: result.usageCents,
         toolCallCount: result.functionCalls?.length ?? 0,
+        provider: result.provider ?? model.provider ?? null,
+        resourceUsage: result.resourceUsage ?? null,
       });
       if (metering?.budget_exceeded) throw new Error("Enterprise monthly spend ceiling exceeded by actual model usage");
       if (result.usageCents > agent.budgetCents) throw new Error(`Agent budget exceeded: ${result.usageCents} > ${agent.budgetCents} cents`);
