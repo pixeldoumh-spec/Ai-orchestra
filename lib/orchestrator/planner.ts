@@ -76,6 +76,7 @@ export async function planWorkflow(input: {
   agents: AgentDefinition[];
   priorResults?: unknown[];
   failureContext?: { stepId: string; agentId: string; error: string };
+  evidenceAvailable?: { documents: number; webSearch: boolean };
 }): Promise<WorkflowPlan> {
   const available = new Set(input.agents.filter((agent) => agent.status !== "offline").map((agent) => agent.id));
   if (available.size < 4) throw new Error("At least four non-offline agents are required for V3 orchestration");
@@ -97,12 +98,13 @@ export async function planWorkflow(input: {
   const model = getModelAdapter();
   const result = await model.complete({
     model: process.env.AI_PLANNER_MODEL ?? "gpt-5.5",
-    system: "You are the planning authority for AI Orchestra. Produce the smallest safe executable DAG that can satisfy the user's goal. Use only listed agents. Prefer useful parallelism for independent work. Include a verification step that covers all terminal work. Separate evidence gathering, reasoning, synthesis and verification. Do not fabricate tool access or external facts. Return only the required structured plan. Never expose private chain-of-thought.",
+    system: "You are the planning authority for AI Orchestra. Produce the smallest safe executable DAG that can satisfy the user's goal. Use only listed agents. Prefer useful parallelism for independent work. Include a verification step that covers all terminal work. Separate evidence gathering, reasoning, synthesis and verification. When web research is enabled, use it for current or externally verifiable claims. When documents are available, use file search rather than guessing their contents. Do not fabricate tool access or external facts. Return only the required structured plan. Never expose private chain-of-thought.",
     user: JSON.stringify({
       goal: input.goal,
       agents: agentCatalog,
       priorResults: input.priorResults?.slice(-12) ?? [],
       failureContext: input.failureContext ?? null,
+      evidenceAvailable: input.evidenceAvailable ?? { documents: 0, webSearch: true },
     }),
     outputSchema: PLANNER_OUTPUT_SCHEMA,
     reasoningEffort: (process.env.AI_PLANNER_REASONING_EFFORT as "low" | "medium" | "high" | "xhigh" | undefined) ?? "high",
