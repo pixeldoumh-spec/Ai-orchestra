@@ -72,7 +72,7 @@ begin
  if sent_count>=p.rate_limit_per_minute then raise exception 'Agent network rate limit reached';end if;
  select * into k from public.agent_identity_keys where organization_id=NEW.organization_id and agent_id=NEW.sender_agent_id and key_version=NEW.signer_key_version and fingerprint=NEW.signer_fingerprint and status='active';
  if not found then raise exception 'Active signer identity key is not registered';end if;
- if NEW.kind='delegation' and not(/^agent\.delegation(?:\.|$)/=~NEW.scope) then raise exception 'Delegation scope is not authorized';end if;
+ if NEW.kind='delegation' and NEW.scope !~ '^agent\\.delegation(\\.|$)' then raise exception 'Delegation scope is not authorized';end if;
  if NEW.kind='response' then
   if NEW.reply_to_message_id is null then raise exception 'Response must reference a prior message';end if;
   if not exists(select 1 from public.agent_network_messages prior where prior.organization_id=NEW.organization_id and prior.message_id=NEW.reply_to_message_id and prior.sender_agent_id=NEW.target_agent_id and prior.target_agent_id=NEW.sender_agent_id and prior.kind in('request','delegation')) then raise exception 'Response does not reference a matching request';end if;
