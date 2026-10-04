@@ -130,6 +130,7 @@ export async function processTask(taskId: string, organizationId: string, worker
             .map((x) => ({ stepId: stepPlanId(x), result: x.result })),
           model,
           executionRegion: snapshot.execution_region,
+          runtimeEnv,
         });
       }));
 
@@ -207,8 +208,9 @@ async function runStep(input: {
   priorResults: unknown[];
   model: ModelAdapter;
   executionRegion?: string | null;
+  runtimeEnv?: unknown;
 }): Promise<{ stepId: string; status: "verified" | "failed" | "awaiting_approval" | "queued"; usageCents: number }> {
-  const { taskId, organizationId, goal, maxCostCents, step, agent, userId, priorResults, model, executionRegion } = input;
+  const { taskId, organizationId, goal, maxCostCents, step, agent, userId, priorResults, model, executionRegion, runtimeEnv } = input;
   const attempt = step.attempt_count + 1;
   await updateStep(step.id, { status: "running", attempt_count: attempt, started_at: new Date().toISOString(), error: null });
   await appendEvent(taskId, organizationId, "step.started", { stepId: step.id, agentId: agent.id, attempt, kind: step.kind });
@@ -221,6 +223,7 @@ async function runStep(input: {
       query: goal + "\n" + step.objective,
       limit: 6,
       workspaceOnly: true,
+      runtimeEnv,
     });
     await recordRetrieval({
       organizationId,
