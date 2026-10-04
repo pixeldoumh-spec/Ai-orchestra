@@ -1,9 +1,11 @@
+import { CloudflareWorkersAIAdapter } from "./cloudflare-workers-ai";
 import type {
   ModelAdapter,
   ModelCitation,
   ModelCompleteInput,
   ModelFunctionCall,
   ModelResult,
+  ModelTool,
 } from "./types";
 
 type Pricing = {
@@ -189,6 +191,11 @@ function redactProviderError(status: number, body: unknown): Error {
 }
 
 export class MockModelAdapter implements ModelAdapter {
+  readonly provider = "mock";
+
+  supportsTool(_type: ModelTool["type"]): boolean {
+    return true;
+  }
   async complete(input: ModelCompleteInput): Promise<ModelResult> {
     if (input.system.includes("Verifier Agent")) {
       const output = {
@@ -225,6 +232,11 @@ export class MockModelAdapter implements ModelAdapter {
 }
 
 export class OpenAIResponsesAdapter implements ModelAdapter {
+  readonly provider = "openai";
+
+  supportsTool(_type: ModelTool["type"]): boolean {
+    return true;
+  }
   async complete(input: ModelCompleteInput): Promise<ModelResult> {
     const key = process.env.OPENAI_API_KEY;
     if (!key) throw new Error("OPENAI_API_KEY is not configured");
@@ -346,6 +358,25 @@ export class OpenAIResponsesAdapter implements ModelAdapter {
 export function getModelAdapter(): ModelAdapter {
   const provider = (process.env.AI_MODEL_PROVIDER ?? "mock").trim().toLowerCase();
   if (provider === "openai") return new OpenAIResponsesAdapter();
+  if (provider === "cloudflare_workers_ai" || provider === "workers_ai" || provider === "cloudflare-ai") {
+    return new CloudflareWorkersAIAdapter();
+  }
   if (provider === "mock") return new MockModelAdapter();
   throw new Error(`Unsupported AI_MODEL_PROVIDER: ${provider}`);
+}
+
+export function getDefaultModel(role: "planner" | "agent" | "verifier"): string {
+  const provider = (process.env.AI_MODEL_PROVIDER ?? "mock").trim().toLowerCase();
+  if (provider === "cloudflare_workers_ai" || provider === "workers_ai" || provider === "cloudflare-ai") {
+    const configured = role === "planner"
+      ? process.env.AI_PLANNER_MODEL
+      : role === "verifier"
+        ? process.env.AI_VERIFIER_MODEL
+        : process.env.WORKERS_AI_MODEL ?? process.env.OPENAI_MODEL;
+    return configured?.startsWith("@cf/") ? configured : "@cf/openai/gpt-oss-20b";
+  }
+
+  if (role === "planner") return process.env.AI_PLANNER_MODEL ?? "gpt-5.5";
+  if (role === "verifier") return process.env.AI_VERIFIER_MODEL ?? process.env.AI_PLANNER_MODEL ?? "gpt-5.5";
+  return process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
 }
