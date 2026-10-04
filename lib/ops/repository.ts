@@ -98,6 +98,16 @@ export async function finishBackgroundWorkerRun(input: {
   if (error) throw new Error(error.message);
 }
 
+export async function markTaskDispatched(taskId: string, dispatchId: string) {
+  const db = createAdminClient();
+  const { data, error } = await db.rpc("mark_task_dispatched", {
+    p_task_id: taskId,
+    p_dispatch_id: dispatchId,
+  });
+  if (error) throw new Error(error.message);
+  return data as { task_id: string; dispatch_count: number; last_dispatched_at: string; last_dispatch_id: string } | null;
+}
+
 export async function getOperationsDashboard(organizationId: string, days = 30) {
   const db = createAdminClient();
   const since = new Date(Date.now() - Math.max(1, Math.min(90, days)) * 86400000).toISOString();
