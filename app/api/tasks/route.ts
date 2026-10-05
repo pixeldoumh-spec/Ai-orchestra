@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       maxCostCents: parsed.data.maxCostCents ?? 500,
       plan,
       plannerModel: process.env.AI_PLANNER_MODEL ?? process.env.OPENAI_MODEL ?? null,
+      teamId: parsed.data.teamId ?? null,
     });
     return NextResponse.json({ task }, { status: 201 });
   } catch (error) {

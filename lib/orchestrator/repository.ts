@@ -30,6 +30,7 @@ export async function createTask(input: {
   maxCostCents: number;
   plan: WorkflowPlan;
   plannerModel?: string | null;
+  teamId?: string | null;
 }) {
   const db = createAdminClient();
   const taskId = randomId("task");

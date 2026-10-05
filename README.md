@@ -1,4 +1,4 @@
-# AI Orchestra V6.5
+# AI Orchestra V7
 
 A provider-neutral AI control plane for planning, executing, verifying, protecting and governing multi-agent workflows.
 
@@ -169,3 +169,40 @@ V6.5 turns the V6.2 document registry into a provider-aware workspace knowledge 
 - The worker automatically grounds each task step with relevant workspace-only knowledge while treating stored content as untrusted data rather than instructions.
 
 Binary formats remain in the existing V6.2 provider retrieval path when OpenAI hosted file_search is selected. Under the production Workers AI path, locally indexable text, markup and source documents use the application-owned semantic retrieval plane.
+
+## V7 — Productization
+
+V7 adds the product layer on top of the V6.6 production runtime:
+
+- **Plans:** Starter, Team and Enterprise are stored as a published plan catalog with explicit task, spend, agent, member, concurrency, task-cost and retention ceilings plus feature flags.
+- **Billing:** Stripe Checkout, Billing Portal, subscription lifecycle storage, invoice storage and an idempotent, signature-verified webhook path. Paid checkout remains configuration-gated until real Stripe credentials and Price IDs are configured.
+- **Quotas:** product-plan limits are provisioned into the existing PostgreSQL admission controls, with a tenant-scoped quota snapshot for tasks, spend, concurrency, agents and members.
+- **Team collaboration:** tasks can be assigned to workspace teams and receive tenant-scoped collaboration comments.
+- **Connector marketplace:** published connector manifests can be installed/uninstalled by workspace administrators. Installation never grants credentials or arbitrary tool authority; required credentials and agent bindings remain explicit.
+- **Enterprise administration:** the existing enterprise control plane now links billing, plans, marketplace and production operations while preserving tenant RBAC and audit logging.
+
+### Billing security boundary
+
+Stripe webhook requests must pass stripe-signature verification with a server-only STRIPE_WEBHOOK_SECRET. Billing event IDs are idempotent, and failed events can be retried safely. Stripe subscriptions are asynchronous, so provisioning follows verified lifecycle events rather than trusting a browser redirect. The application provisions a product plan only after a validated event updates the durable subscription record.
+
+### Runtime configuration for billing
+
+Configure as Cloudflare Worker runtime Secrets:
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+
+Optional environment Price ID overrides:
+STRIPE_TEAM_MONTH_PRICE_ID
+STRIPE_TEAM_YEAR_PRICE_ID
+STRIPE_ENTERPRISE_MONTH_PRICE_ID
+STRIPE_ENTERPRISE_YEAR_PRICE_ID
+
+The workspace database can also store Stripe Price IDs on product_plans.
+
+### V7 surfaces
+
+- /billing — plans, checkout, subscription/invoice status and live quotas.
+- /marketplace — governed connector catalog and workspace installs.
+- /enterprise — enterprise administration, teams, audit and V6.6 operations.
+- /network — agent-to-agent network.
+- /knowledge — workspace knowledge and memory.
