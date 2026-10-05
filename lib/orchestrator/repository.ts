@@ -368,10 +368,16 @@ export async function replanTask(input: {
   const { error: insertError } = await db.from("task_steps").insert(newSteps);
   if (insertError) throw new Error(insertError.message);
 
-  const { error: cancelError } = await db.from("task_steps").update({ status: "cancelled", finished_at: new Date().toISOString() })
+  const previousRevision = Number(task.plan_revision ?? 1);
+  const supersededAt = new Date().toISOString();
+  const { error: cancelError } = await db.from("task_steps").update({
+    status: "cancelled",
+    finished_at: supersededAt,
+    error: "Superseded by plan revision " + revision,
+  })
     .eq("task_id", input.taskId)
-    .eq("plan_revision", Number(task.plan_revision ?? 1))
-    .eq("status", "queued");
+    .eq("plan_revision", previousRevision)
+    .in("status", ["queued", "running", "awaiting_approval"]);
   if (cancelError) throw new Error(cancelError.message);
 
   const nextCount = Number(task.replan_count ?? 0) + 1;
