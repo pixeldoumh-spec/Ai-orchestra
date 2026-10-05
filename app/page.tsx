@@ -17,6 +17,7 @@ type Approval = {
 export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [teams, setTeams] = useState<any[]>([]);
   const [org, setOrg] = useState<any>(null);
   const [goal, setGoal] = useState("Prepare a concise weekly business report");
   const [task, setTask] = useState<Task>(null);
@@ -40,6 +41,8 @@ export default function Home() {
     const d = await r.json();
     setOrg(d.organization);
     setAgents(d.agents ?? []);
+    const teamResponse = await fetch("/api/enterprise/teams");
+    if (teamResponse.ok) setTeams((await teamResponse.json()).teams ?? []);
     await loadConnectors();
   }
 
@@ -81,6 +84,8 @@ export default function Home() {
     setMessage("");
   }
 
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+  
   async function run() {
     setLoading(true);
     setMessage("");
@@ -90,7 +95,7 @@ export default function Home() {
         "content-type": "application/json",
         "Idempotency-Key": crypto.randomUUID(),
       },
-      body: JSON.stringify({ goal, maxCostCents: 500 }),
+      body: JSON.stringify({ goal, maxCostCents: 500, teamId: selectedTeamId || null }),
     });
     const b = await create.json();
     if (!create.ok) {
@@ -135,7 +140,9 @@ export default function Home() {
           <span>{ch.active}/{ch.total} connectors active</span>
           <a href="/network">Agent Network</a>
           <a href="/knowledge">Knowledge</a>
-          <a href="/enterprise">Operations</a>
+          <a href="/billing">Billing</a>
+          <a href="/marketplace">Marketplace</a>
+          <a href="/enterprise">Enterprise</a>
           <a href="/auth/sign-in">Account</a>
         </div>
       </header>
@@ -185,6 +192,15 @@ export default function Home() {
             {loading ? "Dispatching…" : "Run goal"}
           </button>
         </div>
+        {teams.length > 0 && (
+          <div className="composerRow">
+            <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)}>
+              <option value="">No team assignment</option>
+              {teams.map((team: any) => <option key={team.id} value={team.id}>{team.name}</option>)}
+            </select>
+            <span className="muted small">Assign this task to a workspace team for shared execution context.</span>
+          </div>
+        )}
         <div className="muted small">
           Tasks are admitted by tenant policy, then handed to the production queue. Closing this page
           does not cancel execution.
@@ -212,7 +228,7 @@ export default function Home() {
 
         <div className="card">
           <div className="sectionTitle">Live execution</div>
-          {task ? <TaskPanel task={task} /> : <div className="empty">Run a goal to create a durable V6.6 task.</div>}
+          {task ? <TaskPanel task={task} teams={teams} /> : <div className="empty">Run a goal to create a durable V7 task.</div>}
         </div>
       </section>
 
@@ -221,10 +237,12 @@ export default function Home() {
   );
 }
 
-function TaskPanel({ task }: { task: Task }) {
+function TaskPanel({ task, teams }: { task: Task; teams: any[] }) {
   const approvals: Approval[] = task.approvals ?? [];
   const pending = approvals.find((a) => a.status === "pending");
   const [evidence, setEvidence] = useState<any[]>([]);
+  const [comments, setComments] = useState<any[]>([]);
+  const [comment, setComment] = useState("");
 
   useEffect(() => {
     let live = true;
@@ -238,6 +256,40 @@ function TaskPanel({ task }: { task: Task }) {
       live = false;
     };
   }, [task.id]);
+
+  useEffect(() => {
+    let live = true;
+    void fetch("/api/tasks/" + encodeURIComponent(task.id) + "/comments")
+      .then(async (r) => (r.ok ? r.json() : { comments: [] }))
+      .then((d) => { if (live) setComments(d.comments ?? []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [task.id, task.events?.length]);
+
+  async function addComment() {
+    if (!comment.trim()) return;
+    const r = await fetch("/api/tasks/" + task.id + "/comments", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: comment }),
+    });
+    const b = await r.json();
+    if (r.ok) {
+      setComments((old) => [...old, b.comment]);
+      setComment("");
+    }
+  }
+
+  async function assignTeam(teamId: string) {
+    const r = await fetch("/api/tasks/" + task.id + "/team", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ teamId: teamId || null }),
+    });
+    if (!r.ok) return;
+    const b = await r.json();
+    if (b.task) window.location.reload();
+  }
 
   async function resolve(decision: "approve" | "reject") {
     if (!pending) return;
@@ -300,6 +352,38 @@ function TaskPanel({ task }: { task: Task }) {
           ))}
         </div>
       )}
+
+      {teams.length > 0 && (
+        <div className="resultBox">
+          <div className="muted small">TEAM COLLABORATION</div>
+          <div className="composerRow">
+            <select value={task.team_id ?? ""} onChange={(e) => assignTeam(e.target.value)}>
+              <option value="">No team assignment</option>
+              {teams.map((team: any) => <option key={team.id} value={team.id}>{team.name}</option>)}
+            </select>
+            <span className="muted small">Team assignment is workspace-scoped.</span>
+          </div>
+        </div>
+      )}
+
+      {comments.length > 0 && (
+        <div className="resultBox">
+          <div className="muted small">COLLABORATION · {comments.length}</div>
+          {comments.slice(-20).map((item: any) => (
+            <div key={item.id} className="agentRow">
+              <div>
+                <b>{String(item.author_id).slice(0, 8)}…</b>
+                <div className="muted small">{item.body}</div>
+              </div>
+              <span className="muted tiny">{item.created_at}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="composerRow">
+        <input placeholder="Add a task comment…" value={comment} onChange={(e) => setComment(e.target.value)} />
+        <button disabled={!comment.trim()} onClick={addComment}>Comment</button>
+      </div>
 
       {pending && (
         <div className="approvalBox">
