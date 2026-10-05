@@ -93,12 +93,14 @@ export default function EnterprisePage() {
     <main className="shell">
       <header className="topbar">
         <div>
-          <div className="eyebrow">ENTERPRISE CONTROL PLANE · V6.6</div>
+          <div className="eyebrow">ENTERPRISE ADMINISTRATION · V7</div>
           <h1>{data?.organization?.name ?? "Organization"}</h1>
         </div>
         <div className="topMeta">
           <span>{e?.plan ?? "starter"} plan</span>
           <a href="/">Orchestrator</a>
+          <a href="/billing">Billing & Plans</a>
+          <a href="/marketplace">Connector Marketplace</a>
           <a href="/network">Agent Network</a>
           <a href="/knowledge">Knowledge</a>
           <a href="/auth/sign-in">Account</a>
@@ -109,18 +111,18 @@ export default function EnterprisePage() {
 
       <section className="hero card">
         <div>
-          <div className="pill">PRODUCTION OPERATIONS + GOVERNANCE</div>
-          <h2>Durable execution, live state, provider resilience and measurable usage.</h2>
+          <div className="pill">PRODUCT + GOVERNANCE + COLLABORATION</div>
+          <h2>Plans, billing, quotas, teams, connectors and production governance in one place.</h2>
           <p className="muted">
-            V6.6 runs tasks through a durable background queue, re-drives stale work, records model
-            execution telemetry, and exposes tenant-scoped usage and reliability data.
+            V7 connects the production runtime to subscription-aware plan provisioning, quota enforcement,
+            team collaboration and a governed connector marketplace while preserving the tenant boundary.
           </p>
         </div>
         <div className="healthGrid">
           <Metric label="Monthly spend" value={"$" + ((u?.spendCents ?? 0) / 100).toFixed(2) + " / $" + ((e?.monthlySpendLimitCents ?? 0) / 100).toFixed(2)} />
           <Metric label="Tasks" value={(u?.taskCount ?? 0) + " / " + (e?.monthlyTaskLimit ?? 0)} />
-          <Metric label="Queue" value="Durable + DLQ" />
-          <Metric label="Fallback" value="Enabled" />
+          <Metric label="Billing" value="Stripe-ready" />
+          <Metric label="Marketplace" value="Governed installs" />
         </div>
       </section>
 
