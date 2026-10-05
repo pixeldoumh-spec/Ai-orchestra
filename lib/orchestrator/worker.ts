@@ -87,12 +87,16 @@ export async function processTask(taskId: string, organizationId: string, worker
   const agents = await listAgents(organizationId);
   const agentMap = new Map(agents.map((agent) => [agent.id, agent]));
   const db = createAdminClient();
-  const maxBatches = Number(process.env.TASK_MAX_BATCHES ?? process.env.TASK_MAX_STEPS ?? "12");
+  const configuredBatches = Number(process.env.TASK_MAX_BATCHES ?? process.env.TASK_MAX_STEPS ?? "12");
+  const invocationBatchLimit = Math.min(
+    Math.max(1, Number(process.env.BACKGROUND_MAX_BATCHES_PER_INVOCATION ?? "1")),
+    Math.max(1, Number.isFinite(configuredBatches) ? Math.floor(configuredBatches) : 12),
+  );
   const maxReplans = Number(process.env.TASK_MAX_REPLANS ?? "2");
   let iterations = 0;
 
   try {
-    while (iterations++ < maxBatches) {
+    while (iterations++ < invocationBatchLimit) {
       await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
       let snapshot = (await getTask(taskId, organizationId)) as PersistedTask & { approvals?: unknown[] };
       if (["verified", "failed", "cancelled", "awaiting_approval"].includes(snapshot.status)) break;
@@ -143,7 +147,7 @@ export async function processTask(taskId: string, organizationId: string, worker
       }
 
       // Only the active plan revision may enter execution. Historical revisions remain audit history.
-      const ready = readyStepIds(currentSteps);
+      const ready = readyStepIds(currentSteps).slice(0, Math.max(1, Math.min(4, Number(process.env.TASK_MAX_PARALLEL_STEPS ?? "1"))));
       if (ready.length === 0) {
         const currentSteps = snapshot.steps.filter((step) => step.plan_revision === snapshot.plan_revision);
         const unresolved = currentSteps.some((step) => ["queued", "running"].includes(step.status));
@@ -257,7 +261,7 @@ export async function processTask(taskId: string, organizationId: string, worker
         .filter(Number.isFinite)
         .sort((a, b) => a - b)[0];
       await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "queued", run_after: wakeAt ? new Date(wakeAt).toISOString() : null });
-      await appendEvent(taskId, organizationId, "task.yielded", { maxBatches, requeued: true });
+      await appendEvent(taskId, organizationId, "task.yielded", { invocationBatchLimit, requeued: true, reason: "bounded_background_invocation" });
     }
 
     return { claimed: true, task: await getTask(taskId, organizationId) };
