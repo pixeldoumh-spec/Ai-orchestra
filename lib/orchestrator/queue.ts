@@ -28,8 +28,9 @@ export async function enqueueTask(input: {
   organizationId: string;
   reason?: "user_start" | "cron_redrive" | "step_retry" | "yield";
   runtimeEnv?: unknown;
+  dispatchId?: string;
 }) {
-  const dispatchId = newDispatchId(input.taskId);
+  const dispatchId = input.dispatchId ?? newDispatchId(input.taskId);
   const payload = {
     schemaVersion: 1,
     dispatchId,
