@@ -201,7 +201,7 @@ export default function EnterprisePage() {
               )}
             </div>
           ))}
-          {teams.length > 0 && (
+          {(data?.teams ?? []).length > 0 && (
             <div className="composerRow">
               <select value={teamMemberUserId} onChange={(x) => setTeamMemberUserId(x.target.value)}>
                 <option value="">Member</option>{(data?.members ?? []).map((m: any) => <option key={m.user_id} value={m.user_id}>{String(m.user_id).slice(0, 8)}…</option>)}
