@@ -88,7 +88,7 @@ export async function listTasks(organizationId: string, limit = 50) {
   const db = createAdminClient();
   const { data, error } = await db
     .from("tasks")
-    .select("id, organization_id, created_by, goal, status, max_cost_cents, spent_cost_cents, plan_version, plan_revision, replan_count, execution_mode, execution_region, planner_model, started_at, finished_at, created_at, updated_at, error")
+    .select("id, organization_id, created_by, goal, status, max_cost_cents, spent_cost_cents, plan_version, plan_revision, replan_count, execution_mode, execution_region, planner_model, started_at, completed_at, created_at, updated_at, error")
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
     .limit(Math.min(100, Math.max(1, limit)));
