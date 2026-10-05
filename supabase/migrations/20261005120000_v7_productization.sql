@@ -1,6 +1,9 @@
 -- V7 Productization
 -- Plans, billing ledger, quota reservations, team governance and connector marketplace.
 
+alter table public.organization_entitlements
+  add column if not exists max_connectors integer not null default 2 check (max_connectors > 0);
+
 create table if not exists public.plan_catalog (
   id text primary key,
   name text not null,
@@ -33,6 +36,12 @@ on conflict (id) do update set
  monthly_task_limit=excluded.monthly_task_limit,monthly_spend_limit_cents=excluded.monthly_spend_limit_cents,max_agents=excluded.max_agents,max_members=excluded.max_members,
  max_concurrency=excluded.max_concurrency,max_task_cost_cents=excluded.max_task_cost_cents,max_connectors=excluded.max_connectors,features=excluded.features,sort_order=excluded.sort_order;
 
+-- Keep existing V5/V6 organizations compatible with the V7 catalog.
+update public.organization_entitlements e
+set max_connectors = coalesce((p.features->>'max_connectors')::integer, e.max_connectors)
+from public.plan_catalog p
+where p.id=e.plan;
+
 create table if not exists public.billing_customers (
   organization_id uuid primary key references public.organizations(id) on delete cascade,
   provider text not null default 'stripe',
@@ -58,9 +67,7 @@ create table if not exists public.billing_subscriptions (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create unique index if not exists billing_subscriptions_one_live_idx
- on public.billing_subscriptions(organization_id)
- where status in ('trialing','active','past_due','paused','incomplete');
+create unique index if not exists billing_subscriptions_one_live_idx on public.billing_subscriptions(organization_id) where status in ('trialing','active','past_due','paused','incomplete');
 
 create table if not exists public.billing_invoices (
   id uuid primary key default gen_random_uuid(),
@@ -128,10 +135,8 @@ create table if not exists public.connector_marketplace_catalog (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 insert into public.connector_marketplace_catalog(id,slug,name,publisher,description,category,adapter_key,auth_scheme,capabilities,scopes,configuration_schema,verified,version)
-values
- ('http-webhook','http-webhook','HTTP Webhook','INBOX9','Generic HTTPS connector for approved external APIs and webhooks.','automation','http', 'api_key','["http.request","external.action"]','["read","write"]','{"baseUrl":{"type":"url","required":true},"credential":{"type":"secret","required":false}}',true,'1.0.0')
+values ('http-webhook','http-webhook','HTTP Webhook','INBOX9','Generic HTTPS connector for approved external APIs and webhooks.','automation','http','api_key','["http.request","external.action"]','["read","write"]','{"baseUrl":{"type":"url","required":true},"credential":{"type":"secret","required":false}}',true,'1.0.0')
 on conflict (id) do update set description=excluded.description,capabilities=excluded.capabilities,scopes=excluded.scopes,configuration_schema=excluded.configuration_schema,updated_at=now();
 
 create table if not exists public.connector_marketplace_installations (
@@ -176,15 +181,15 @@ declare ent record; usage record; existing record; active_connectors bigint; res
 begin
  select * into ent from organization_entitlements where organization_id=p_organization_id for update;
  if not found then raise exception 'Organization plan is not initialized'; end if;
- select coalesce(task_count,0) as task_count,coalesce(spend_cents,0) as spend_cents into usage from enterprise_usage_monthly where organization_id=p_organization_id and period_start=date_trunc('month',now())::date for update;
- if not found then insert into enterprise_usage_monthly(organization_id,period_start,task_count,spend_cents,reserved_cents) values(p_organization_id,date_trunc('month',now())::date,0,0,0) returning task_count,spend_cents into usage; end if;
+ select coalesce(task_count,0) as task_count,coalesce(spend_cents,0) as spend_cents,coalesce(reserved_cents,0) as reserved_cents into usage from enterprise_usage_monthly where organization_id=p_organization_id and period_start=date_trunc('month',now())::date for update;
+ if not found then insert into enterprise_usage_monthly(organization_id,period_start,task_count,spend_cents,reserved_cents) values(p_organization_id,date_trunc('month',now())::date,0,0,0) returning task_count,spend_cents,reserved_cents into usage; end if;
  select * into existing from quota_reservations where organization_id=p_organization_id and idempotency_key=p_idempotency_key and status='reserved' and expires_at>now();
  if found then return jsonb_build_object('allowed',true,'reservationId',existing.id,'status','reserved'); end if;
  if usage.task_count >= ent.monthly_task_limit then raise exception 'Monthly task quota exceeded'; end if;
  if usage.spend_cents + usage.reserved_cents + p_estimated_cost_cents > ent.monthly_spend_limit_cents then raise exception 'Monthly spend quota exceeded'; end if;
  if p_estimated_cost_cents > ent.max_task_cost_cents then raise exception 'Task cost exceeds plan limit'; end if;
  select count(*) into active_connectors from connectors where organization_id=p_organization_id and status<>'disabled';
- if active_connectors > ent.max_members * 1000 then raise exception 'Connector quota configuration is invalid'; end if;
+ if active_connectors >= ent.max_connectors then raise exception 'Connector quota exceeded'; end if;
  insert into quota_reservations(organization_id,idempotency_key,estimated_cost_cents) values(p_organization_id,p_idempotency_key,p_estimated_cost_cents) returning id into reservation_id;
  update enterprise_usage_monthly set reserved_cents=coalesce(reserved_cents,0)+p_estimated_cost_cents where organization_id=p_organization_id and period_start=date_trunc('month',now())::date;
  return jsonb_build_object('allowed',true,'reservationId',reservation_id,'status','reserved');
