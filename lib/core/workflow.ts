@@ -89,6 +89,13 @@ export function buildAdaptiveFallbackPlan(goal: string, agentIds: { research: st
   });
 }
 
+export function findFailedCurrentRevisionStep<T extends { status: string; plan_revision: number }>(
+  steps: T[],
+  currentRevision: number,
+): T | null {
+  return steps.find((step) => step.plan_revision === currentRevision && step.status === "failed") ?? null;
+}
+
 export function readyStepIds(
   steps: Array<{ id: string; status: string; depends_on: string[]; run_after?: string | null }>,
   now = Date.now(),

@@ -5,7 +5,7 @@ import { planWorkflow } from "./planner";
 import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, recoverStaleTaskSteps, settleTaskLease, TaskLeaseLostError, updateStepOwned, updateTaskOwned } from "./repository";
 import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, PersistedTask } from "./types";
 import { getModelTools, invokeTool, resolveModelToolId } from "@/lib/tools/gateway";
-import { readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
+import { findFailedCurrentRevisionStep, readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
 import { recordEnterpriseUsage } from "@/lib/enterprise/metering";
 import { getHostedModelTools } from "@/lib/evidence/tools";
 import { persistModelCitations } from "@/lib/evidence/repository";
@@ -96,6 +96,51 @@ export async function processTask(taskId: string, organizationId: string, worker
       await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
       let snapshot = (await getTask(taskId, organizationId)) as PersistedTask & { approvals?: unknown[] };
       if (["verified", "failed", "cancelled", "awaiting_approval"].includes(snapshot.status)) break;
+
+      const currentSteps = snapshot.steps.filter((step) => step.plan_revision === snapshot.plan_revision);
+      const failedCurrentStep = findFailedCurrentRevisionStep(currentSteps, snapshot.plan_revision);
+      if (failedCurrentStep) {
+        const failedAgent = agentMap.get(failedCurrentStep.agent_id);
+        const reason = failedCurrentStep.error ?? "Step failed without an error message";
+        if (snapshot.replan_count < maxReplans) {
+          const replacementPlan = await planWorkflow({
+            goal: snapshot.goal,
+            agents,
+            priorResults: currentSteps
+              .filter((step) => step.status === "verified")
+              .map((step) => ({ stepId: stepPlanId(step), result: step.result })),
+            failureContext: {
+              stepId: failedCurrentStep.id,
+              agentId: failedAgent?.id ?? failedCurrentStep.agent_id,
+              error: reason,
+            },
+            runtimeEnv,
+          });
+          await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+          await replanTask({
+            taskId,
+            organizationId,
+            plan: replacementPlan,
+            reason,
+            plannerModel: getDefaultModel("planner"),
+            workerId,
+            leaseGeneration,
+          });
+          continue;
+        }
+
+        await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, {
+          status: "failed",
+          error: "Retries and bounded replans exhausted for step " + stepPlanId(failedCurrentStep) + ": " + reason,
+          completed_at: new Date().toISOString(),
+        });
+        await appendEvent(taskId, organizationId, "task.failed", {
+          reason: "Retries and bounded replans exhausted",
+          stepId: failedCurrentStep.id,
+          error: reason,
+        });
+        break;
+      }
 
       const ready = readyStepIds(snapshot.steps);
       if (ready.length === 0) {
