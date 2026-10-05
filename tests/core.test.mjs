@@ -6,7 +6,7 @@ import{effectiveCircuitState,nextCircuitState,selectConnectorCandidate}from"../.
 import{hasEnterprisePermission,rolePermissions}from"../.tmp-core/enterprise/rbac.js";
 import{canonicalJson,validateNetworkEnvelope}from"../.tmp-core/network/protocol.js";
 import{assertNetworkPolicy,normalizeNetworkPolicy}from"../.tmp-core/network/policy.js";
-import{isDispatchEligible,isDispatchCooldownActive,isHeartbeatFresh,safeWorkerExitStatus,stepNeedsRecovery}from"../.tmp-core/runtime.js";
+import{isDispatchEligible,isDispatchCooldownActive,isHeartbeatFresh,safeWorkerExitStatus,stepNeedsRecovery,isStaleLeaseTakeoverEligible}from"../.tmp-core/runtime.js";
 test("V3 fallback plan has parallel branches and verification coverage",()=>{const p=buildAdaptiveFallbackPlan("make report",{research:"research",analysis:"analysis",writer:"writer",verifier:"verifier"});assert.equal(p.steps.length,5);assert.deepEqual(p.steps[2].dependsOn,["research_primary","research_secondary"]);assert.deepEqual(p.steps[4].verifies,["writer"]);});
 test("workflow validator rejects cycles and missing dependencies",()=>{const b={version:"v3",steps:[{id:"a1",agentId:"research",objective:"a",dependsOn:["b1"],maxAttempts:3,kind:"work"},{id:"b1",agentId:"research",objective:"b",dependsOn:["a1"],maxAttempts:3,kind:"work"},{id:"v1",agentId:"verifier",objective:"verify",dependsOn:["a1","b1"],maxAttempts:3,kind:"verification",verifies:["a1","b1"]}]};assert.throws(()=>validatePlan(b,new Set(["research","verifier"])),/cycle/i);assert.throws(()=>validatePlan({...b,steps:b.steps.map((s,i)=>i===0?{...s,dependsOn:["missing"]}:s)},new Set(["research","verifier"])),/Missing dependency/);});
 test("ready steps honor dependencies and retry timing",()=>{assert.deepEqual(readyStepIds([{id:"a",status:"queued",depends_on:[]},{id:"b",status:"queued",depends_on:["a"]}]),["a"]);assert.deepEqual(readyStepIds([{id:"a",status:"verified",depends_on:[]},{id:"b",status:"queued",depends_on:["a"]}]),["b"]);assert.deepEqual(readyStepIds([{id:"a",status:"queued",depends_on:[],run_after:new Date(2000).toISOString()}],1000),[]);});
@@ -48,4 +48,16 @@ test("V6.6.1 step recovery detects older or unknown worker generations",()=>{
  assert.equal(stepNeedsRecovery(null,2),true);
  assert.equal(stepNeedsRecovery(1,2),true);
  assert.equal(stepNeedsRecovery(2,2),false);
+});
+
+
+test("V6.6.1 stale active lease becomes eligible after prolonged heartbeat loss",()=>{
+ const now=Date.parse("2026-10-05T16:00:00.000Z");
+ const task={status:"running",lease_until:"2026-10-05T16:03:00.000Z",last_heartbeat_at:"2026-10-05T15:54:00.000Z"};
+ assert.equal(isStaleLeaseTakeoverEligible(task,now,300000),true);
+});
+test("V6.6.1 active heartbeat never gets forcibly reclaimed",()=>{
+ const now=Date.parse("2026-10-05T16:00:00.000Z");
+ const task={status:"running",lease_until:"2026-10-05T16:05:00.000Z",last_heartbeat_at:"2026-10-05T15:59:30.000Z"};
+ assert.equal(isStaleLeaseTakeoverEligible(task,now,300000),false);
 });
