@@ -527,7 +527,28 @@ async function runStep(input: {
           throw new Error(`Model supplied invalid JSON arguments for tool ${call.name}`);
         }
 
-        const toolResult = await invokeTool(agent, taskId, { toolId, input: args }, step.id);
+        let toolResult: Awaited<ReturnType<typeof invokeTool>>;
+        try {
+          toolResult = await invokeTool(agent, taskId, { toolId, input: args }, step.id, runtimeEnv);
+        } catch (error) {
+          const toolError = error instanceof Error ? error.message.slice(0, 800) : "Tool execution failed";
+          await appendEvent(taskId, organizationId, "tool.failed", {
+            stepId: step.id,
+            agentId: agent.id,
+            toolId,
+            error: toolError,
+          }).catch(() => {});
+          toolOutputs.push({
+            type: "function_call_output",
+            call_id: call.callId,
+            output: JSON.stringify({
+              ok: false,
+              error: toolError,
+              note: "The tool call failed. Do not claim that the external operation occurred; adapt using the remaining available evidence and tools.",
+            }).slice(0, 20_000),
+          });
+          continue;
+        }
         if (toolResult.approved === false) {
           await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
           await updateStepOwned(step.id, taskId, organizationId, workerId, leaseGeneration, {
