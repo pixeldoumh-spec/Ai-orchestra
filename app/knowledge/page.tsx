@@ -1,5 +1,8 @@
 "use client";
 
+
+import { OrchestraShell } from "@/components/OrchestraShell";
+
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 
 type DocumentRow = { id: string; filename: string; mime_type: string; size_bytes: number; status: string; provider?: string; local_retrieval_status?: string; local_chunk_count?: number; error?: string | null; created_at: string };
@@ -98,9 +101,7 @@ export default function KnowledgePage() {
   function formatBytes(bytes: number) { if (bytes < 1024) return bytes + " B"; if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"; return (bytes / 1024 / 1024).toFixed(1) + " MB"; }
 
   return (
-    <main className="shell">
-      <header className="topbar"><div><div className="eyebrow">KNOWLEDGE · V6.5</div><h1>Workspace knowledge</h1></div><div className="topMeta"><a href="/">Orchestrator</a><a href="/network">Agent Network</a><a href="/enterprise">Enterprise</a></div></header>
-
+    <OrchestraShell title="Knowledge" section="Knowledge"><div className="shell">
       <section className="card">
         <div className="sectionTitle">Workspace memory</div>
         <p className="muted small">Durable facts, preferences, decisions and procedures. Workspace memory is shared inside this organization; private memory is visible only to you.</p>
@@ -133,6 +134,6 @@ export default function KnowledgePage() {
       </section>
 
       {message && <div className="muted small" style={{ marginTop: 12 }}>{message}</div>}
-    </main>
+    </div></OrchestraShell>
   );
 }
