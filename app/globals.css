@@ -263,3 +263,16 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 @media(prefers-reduced-motion:reduce){
   *{scroll-behavior:auto!important}
 }
+
+
+.orchestraSecondaryApp{min-height:100vh;background:var(--surface)}
+.orchestraSecondaryApp .secondaryContent{width:min(1080px,100%);margin:0 auto;padding:0 0 40px}
+.orchestraSecondaryApp .secondaryContent>.topbar{display:none}
+.orchestraSecondaryApp .shell{max-width:none;margin:0;padding:0}
+.orchestraSecondaryApp .topMeta,.orchestraSecondaryApp .eyebrow{display:none}
+.orchestraSecondaryApp .hero{margin-top:0;background:var(--surface-soft);box-shadow:none}
+.orchestraSecondaryApp .card{box-shadow:none}
+.orchestraSecondaryApp .status{background:var(--surface-soft)}
+.orchestraSecondaryApp .composerRow{flex-wrap:wrap}
+.orchestraSecondaryApp .composerRow>*{min-width:0}
+@media(max-width:720px){.orchestraSecondaryApp .secondaryContent{padding-bottom:28px}}
