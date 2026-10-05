@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { listAgents } from "./registry";
 import { getDefaultModel, getModelAdapter } from "./model";
 import { planWorkflow } from "./planner";
-import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, settleTaskLease, TaskLeaseLostError, updateStepOwned, updateTaskOwned } from "./repository";
+import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, recoverStaleTaskSteps, settleTaskLease, TaskLeaseLostError, updateStepOwned, updateTaskOwned } from "./repository";
 import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, PersistedTask } from "./types";
 import { getModelTools, invokeTool, resolveModelToolId } from "@/lib/tools/gateway";
 import { readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
@@ -73,6 +73,15 @@ export async function processTask(taskId: string, organizationId: string, worker
   const claimed = await claimTask(taskId, organizationId, workerId);
   if (!claimed) return { claimed: false, task: await getTask(taskId, organizationId) };
   const leaseGeneration = Number(claimed.lease_generation ?? 0);
+
+  const recoveredSteps = await recoverStaleTaskSteps(taskId, organizationId, leaseGeneration);
+  if (recoveredSteps > 0) {
+    await appendEvent(taskId, organizationId, "task.steps_recovered", {
+      recoveredSteps,
+      leaseGeneration,
+      reason: "stale_worker_generation",
+    });
+  }
 
   const model = getModelAdapter(runtimeEnv);
   const agents = await listAgents(organizationId);
