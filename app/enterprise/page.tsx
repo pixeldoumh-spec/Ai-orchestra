@@ -14,6 +14,9 @@ export default function EnterprisePage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
   const [inviteToken, setInviteToken] = useState("");
+  const [teamMemberUserId, setTeamMemberUserId] = useState("");
+  const [teamMemberTeamId, setTeamMemberTeamId] = useState("");
+  const [teamMemberRole, setTeamMemberRole] = useState("member");
 
   async function load() {
     setLoading(true);
@@ -78,6 +81,22 @@ export default function EnterprisePage() {
     setInviteToken(b.token ?? "");
     setInviteEmail("");
     await load();
+  }
+
+
+  async function setRole(userId: string, role: string) {
+    const r = await fetch("/api/enterprise/members/" + encodeURIComponent(userId), { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ role }) });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok) { setMessage(b.error ?? "Role update failed"); return; }
+    setMessage("Member role updated."); await load();
+  }
+
+  async function addToTeam() {
+    if (!teamMemberTeamId || !teamMemberUserId) return;
+    const r = await fetch("/api/enterprise/teams/" + encodeURIComponent(teamMemberTeamId) + "/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: teamMemberUserId, role: teamMemberRole }) });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok) { setMessage(b.error ?? "Team membership update failed"); return; }
+    setMessage("Team membership saved.");
   }
 
   if (loading) {
@@ -175,8 +194,25 @@ export default function EnterprisePage() {
                 <b>{String(m.user_id).slice(0, 8)}…</b>
                 <div className="muted small">{m.role}</div>
               </div>
+              {m.role !== "owner" && (
+                <select value={m.role} onChange={(ev) => void setRole(m.user_id, ev.target.value)}>
+                  <option value="member">member</option><option value="operator">operator</option><option value="billing">billing</option><option value="auditor">auditor</option><option value="viewer">viewer</option><option value="admin">admin</option>
+                </select>
+              )}
             </div>
           ))}
+          {teams.length > 0 && (
+            <div className="composerRow">
+              <select value={teamMemberUserId} onChange={(x) => setTeamMemberUserId(x.target.value)}>
+                <option value="">Member</option>{(data?.members ?? []).map((m: any) => <option key={m.user_id} value={m.user_id}>{String(m.user_id).slice(0, 8)}…</option>)}
+              </select>
+              <select value={teamMemberTeamId} onChange={(x) => setTeamMemberTeamId(x.target.value)}>
+                <option value="">Team</option>{teams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <select value={teamMemberRole} onChange={(x) => setTeamMemberRole(x.target.value)}><option value="member">member</option><option value="lead">lead</option></select>
+              <button disabled={!teamMemberUserId || !teamMemberTeamId} onClick={() => void addToTeam}>Add to team</button>
+            </div>
+          )}
           <div className="composerRow">
             <input type="email" placeholder="Invite email" value={inviteEmail} onChange={(x) => setInviteEmail(x.target.value)} />
             <select value={inviteRole} onChange={(x) => setInviteRole(x.target.value)}>
