@@ -65,7 +65,7 @@ export function MobileWorkspaceNav() {
       )}
 
       {open && (
-        <section className="mobileMoreSheet" aria-label="More workspace navigation">
+        <section id="mobile-workspace-more" className="mobileMoreSheet" aria-label="More workspace navigation">
           <div className="mobileMoreHeader">
             <div>
               <strong>Workspace</strong>
