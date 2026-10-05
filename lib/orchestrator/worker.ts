@@ -73,7 +73,6 @@ export async function processTask(taskId: string, organizationId: string, worker
   const claimed = await claimTask(taskId, organizationId, workerId);
   if (!claimed) return { claimed: false, task: await getTask(taskId, organizationId) };
   const leaseGeneration = Number(claimed.lease_generation ?? 0);
-  const leaseGeneration = Number(claimed.lease_generation ?? 0);
 
   const model = getModelAdapter(runtimeEnv);
   const agents = await listAgents(organizationId);
@@ -144,6 +143,7 @@ export async function processTask(taskId: string, organizationId: string, worker
           model,
           executionRegion: snapshot.execution_region,
           runtimeEnv,
+          workerId,
           leaseGeneration,
         });
       }));
@@ -194,7 +194,7 @@ export async function processTask(taskId: string, organizationId: string, worker
     }
 
     const tail = (await getTask(taskId, organizationId)) as PersistedTask;
-    if (tail.status === "running" && iterations > maxBatches) {
+    if (tail.status === "running") {
       const current = tail.steps.filter((step) => step.plan_revision === tail.plan_revision);
       const wakeAt = current
         .map((step) => (step.status === "queued" && step.run_after ? Date.parse(step.run_after) : NaN))
@@ -620,7 +620,7 @@ async function safeRecordExecutionMetric(input: Parameters<typeof recordExecutio
 async function recordUsage(
   stepId: string,
   usageCents: number,
-  ownership?: { taskId: string; organizationId: string; workerId: string; leaseGeneration: number },
+  ownership: { taskId: string; organizationId: string; workerId: string; leaseGeneration: number },
 ) {
   const db = createAdminClient();
   const { data, error } = await db.from("task_steps").select("usage_cents_total").eq("id", stepId).single();
