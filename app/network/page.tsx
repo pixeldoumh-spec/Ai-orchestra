@@ -1,5 +1,8 @@
 "use client";
 
+
+import { OrchestraShell } from "@/components/OrchestraShell";
+
 import { useEffect, useState, type CSSProperties } from "react";
 
 type Agent = any;
@@ -151,21 +154,7 @@ export default function NetworkPage() {
   }
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">AGENT NETWORK · V6.4</div>
-          <h1>Agent-to-agent network</h1>
-        </div>
-        <div className="topMeta">
-          <span>{org?.name ?? "No workspace"}</span>
-          <span>{stats?.activePeers ?? 0} trust edges</span>
-          <span>{stats?.queued ?? 0} queued</span>
-          <a href="/">Orchestrator</a>
-          <a href="/enterprise">Enterprise</a>
-        </div>
-      </header>
-
+    <OrchestraShell title="Agent network" section="Agent network"><div className="shell">
       <section className="hero card">
         <div>
           <div className="pill">V6.4 · SIGNED · ENCRYPTED · POLICY-GOVERNED</div>
@@ -275,7 +264,7 @@ export default function NetworkPage() {
         ))}
       </section>
       {status && <div className="error">{status}</div>}
-    </main>
+    </div></OrchestraShell>
   );
 }
 
