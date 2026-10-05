@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyProductPlanToEntitlements } from "./provisioning";
+import { ensureEnterpriseDefaults } from "@/lib/enterprise/repository";
 
 export async function listProductPlans() {
   const db = createAdminClient();
@@ -9,6 +10,7 @@ export async function listProductPlans() {
 }
 
 export async function getBillingOverview(organizationId: string) {
+  await ensureEnterpriseDefaults(organizationId);
   const db = createAdminClient();
   const [{ data: entitlement, error: entitlementError }, { data: customer, error: customerError }, { data: subscriptions, error: subscriptionError }, { data: invoices, error: invoiceError }, { data: plans, error: planError }] = await Promise.all([
     db.from("organization_entitlements").select("*").eq("organization_id", organizationId).maybeSingle(),
