@@ -252,9 +252,23 @@ export async function recalculateTaskSpend(
   return spent;
 }
 
-export async function replanTask(input: { taskId: string; organizationId: string; plan: WorkflowPlan; reason: string; plannerModel?: string | null }) {
+export async function replanTask(input: {
+  taskId: string;
+  organizationId: string;
+  plan: WorkflowPlan;
+  reason: string;
+  plannerModel?: string | null;
+  workerId?: string;
+  leaseGeneration?: number;
+}) {
   const db = createAdminClient();
-  const { data: task, error: taskError } = await db.from("tasks").select("plan_revision, replan_count").eq("id", input.taskId).eq("organization_id", input.organizationId).single();
+  const taskQuery = db.from("tasks")
+    .select("plan_revision, replan_count")
+    .eq("id", input.taskId)
+    .eq("organization_id", input.organizationId);
+  const { data: task, error: taskError } = input.workerId && input.leaseGeneration != null
+    ? await taskQuery.eq("status", "running").eq("lease_owner", input.workerId).eq("lease_generation", input.leaseGeneration).single()
+    : await taskQuery.single();
   if (taskError) throw new Error(taskError.message);
 
   const revision = Number(task.plan_revision ?? 1) + 1;
@@ -269,7 +283,7 @@ export async function replanTask(input: { taskId: string; organizationId: string
   if (cancelError) throw new Error(cancelError.message);
 
   const nextCount = Number(task.replan_count ?? 0) + 1;
-  const { error: updateError } = await db.from("tasks").update({
+  let updateQuery = db.from("tasks").update({
     status: "queued",
     plan_version: `v4.${revision}`,
     plan_revision: revision,
@@ -279,7 +293,15 @@ export async function replanTask(input: { taskId: string; organizationId: string
     run_after: null,
     error: null,
   }).eq("id", input.taskId).eq("organization_id", input.organizationId);
+  if (input.workerId && input.leaseGeneration != null) {
+    updateQuery = updateQuery
+      .eq("status", "running")
+      .eq("lease_owner", input.workerId)
+      .eq("lease_generation", input.leaseGeneration);
+  }
+  const { error: updateError, data: updated } = await updateQuery.select("id").maybeSingle();
   if (updateError) throw new Error(updateError.message);
+  if (!updated && input.workerId && input.leaseGeneration != null) throw new TaskLeaseLostError();
 
   await appendEvent(input.taskId, input.organizationId, "task.replanned", {
     revision,
