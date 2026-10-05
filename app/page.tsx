@@ -87,6 +87,7 @@ export default function Home() {
   const [workspaceName, setWorkspaceName] = useState("My Workspace");
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [showCapabilities, setShowCapabilities] = useState(false);
+  const [recentTasks, setRecentTasks] = useState<Task[]>([]);
 
   async function loadConnectors() {
     const r = await fetch("/api/connectors");
@@ -105,6 +106,9 @@ export default function Home() {
     const d = await r.json();
     setOrg(d.organization);
     setAgents(d.agents ?? []);
+
+    const historyResponse = await fetch("/api/tasks?limit=6");
+    if (historyResponse.ok) setRecentTasks((await historyResponse.json()).tasks ?? []);
 
     const teamResponse = await fetch("/api/enterprise/teams");
     if (teamResponse.ok) setTeams((await teamResponse.json()).teams ?? []);
@@ -386,10 +390,19 @@ export default function Home() {
             {task ? (
               <TaskPanel task={task} teams={teams} />
             ) : (
-              <section className="emptyState">
-                <div className="emptyIcon"><Icon name="spark" size={17} /></div>
-                <strong>Your next run will appear here</strong>
-                <span>Orchestra will show progress as work moves between specialists.</span>
+              <section className="recentRuns">
+                <div className="recentRunsHeader">
+                  <div><div className="sectionTitle">Recent runs</div><div className="muted tiny">Continue where you left off.</div></div>
+                  <a href="/runs" className="smallLink">View all →</a>
+                </div>
+                {recentTasks.length===0 ? (
+                  <div className="emptyState compact"><div className="emptyIcon"><Icon name="spark" size={17} /></div><strong>Your next run will appear here</strong><span>Orchestra will keep the run addressable after you leave this page.</span></div>
+                ) : recentTasks.map((t:any)=>(
+                  <a key={t.id} href="/runs?task="+encodeURIComponent(t.id) className="recentRunItem">
+                    <div><strong>{t.goal}</strong><span>{t.id} · {formatHomeStatus(t.status)}</span></div>
+                    <span>{t.spent_cost_cents??0}¢</span>
+                  </a>
+                ))}
               </section>
             )}
 
@@ -642,3 +655,5 @@ function stepWidth(status: string) {
   if (["failed", "cancelled", "rejected"].includes(status)) return "100%";
   return "8%";
 }
+
+function formatHomeStatus(value: string){ return String(value ?? "pending").replace(/[_-]+/g," ").replace(/\b\w/g,(c)=>c.toUpperCase()); }
