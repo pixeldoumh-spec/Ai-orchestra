@@ -148,7 +148,7 @@ export async function upsertStripeInvoice(invoice: any) {
 export async function recordBillingEvent(input: { eventId: string; eventType: string; payloadHash: string; payload: unknown }) {
   const db = createAdminClient();
   const { data: existing } = await db.from("billing_events").select("id,status").eq("external_event_id", input.eventId).maybeSingle();
-  if (existing) return { duplicate: true, status: existing.status };
+  if (existing && (existing.status === "processed" || existing.status === "ignored")) return { duplicate: true, status: existing.status };
 
   const { data, error } = await db.from("billing_events").insert({
     provider: "stripe",
