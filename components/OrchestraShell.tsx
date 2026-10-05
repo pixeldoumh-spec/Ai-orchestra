@@ -2,6 +2,7 @@
 
 import { ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { MobileWorkspaceNav } from "@/components/MobileWorkspaceNav";
 
 type IconName = "home"|"runs"|"knowledge"|"network"|"marketplace"|"billing"|"workspace"|"settings"|"user";
 
@@ -64,6 +65,7 @@ export function OrchestraShell({ children, title, section }: { children: ReactNo
         </header>
         <main className="orchestraCanvas"><div className="secondaryContent">{children}</div></main>
       </section>
+      <MobileWorkspaceNav />
     </div>
   );
 }
