@@ -110,7 +110,7 @@ export class TaskLeaseLostError extends Error {
   }
 }
 
-async function recoverStaleLeaseBeforeClaim(
+export async function recoverStaleTaskLease(
   taskId: string,
   organizationId: string,
 ): Promise<boolean> {
