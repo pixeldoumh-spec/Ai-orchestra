@@ -149,6 +149,18 @@ export async function recordBillingEvent(input: { eventId: string; eventType: st
   const db = createAdminClient();
   const { data: existing } = await db.from("billing_events").select("id,status").eq("external_event_id", input.eventId).maybeSingle();
   if (existing && (existing.status === "processed" || existing.status === "ignored")) return { duplicate: true, status: existing.status };
+  if (existing) {
+    const { error: resetError } = await db.from("billing_events").update({
+      status: "received",
+      error: null,
+      payload: input.payload,
+      payload_hash: input.payloadHash,
+      received_at: new Date().toISOString(),
+      processed_at: null,
+    }).eq("external_event_id", input.eventId);
+    if (resetError) throw new Error(resetError.message);
+    return { duplicate: false, id: existing.id };
+  }
 
   const { data, error } = await db.from("billing_events").insert({
     provider: "stripe",
