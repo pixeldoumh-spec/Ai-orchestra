@@ -1,5 +1,8 @@
 "use client";
 
+
+import { OrchestraShell } from "@/components/OrchestraShell";
+
 import { useEffect, useMemo, useState } from "react";
 
 export default function EnterprisePage() {
@@ -79,9 +82,9 @@ export default function EnterprisePage() {
 
   if (loading) {
     return (
-      <main className="shell">
+      <OrchestraShell title="Workspace" section="Workspace"><div className="shell">
         <section className="card"><b>Loading enterprise control plane…</b></section>
-      </main>
+      </div></OrchestraShell>
     );
   }
 
@@ -90,23 +93,7 @@ export default function EnterprisePage() {
   const u = data?.usage;
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">ENTERPRISE ADMINISTRATION · V7</div>
-          <h1>{data?.organization?.name ?? "Organization"}</h1>
-        </div>
-        <div className="topMeta">
-          <span>{e?.plan ?? "starter"} plan</span>
-          <a href="/">Orchestrator</a>
-          <a href="/billing">Billing & Plans</a>
-          <a href="/marketplace">Connector Marketplace</a>
-          <a href="/network">Agent Network</a>
-          <a href="/knowledge">Knowledge</a>
-          <a href="/auth/sign-in">Account</a>
-        </div>
-      </header>
-
+    <OrchestraShell title="Workspace" section="Workspace"><div className="shell">
       {message && <div className="card" style={{ marginBottom: 16, padding: 14 }}>{message}</div>}
 
       <section className="hero card">
@@ -246,7 +233,7 @@ export default function EnterprisePage() {
           Primary: <b>{e?.primaryRegion}</b> · Allowed: {(e?.allowedRegions ?? []).join(", ")} · Residency: {e?.dataResidency}
         </div>
       </section>
-    </main>
+    </div></OrchestraShell>
   );
 }
 
