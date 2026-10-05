@@ -60,3 +60,17 @@ export function stepNeedsRecovery(
 ): boolean {
   return executionLeaseGeneration == null || executionLeaseGeneration !== currentLeaseGeneration;
 }
+
+
+export function isStaleLeaseTakeoverEligible(
+  task: RuntimeTaskSnapshot,
+  nowMs = Date.now(),
+  staleLeaseTakeoverMs = 300_000,
+): boolean {
+  if (task.status !== "running") return false;
+  const leaseUntil = task.lease_until ? Date.parse(task.lease_until) : NaN;
+  const heartbeat = task.last_heartbeat_at ? Date.parse(task.last_heartbeat_at) : NaN;
+  if (!Number.isFinite(leaseUntil) || leaseUntil <= nowMs) return false;
+  if (!Number.isFinite(heartbeat)) return false;
+  return heartbeat <= nowMs - staleLeaseTakeoverMs;
+}
