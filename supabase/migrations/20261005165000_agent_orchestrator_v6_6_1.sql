@@ -21,7 +21,7 @@ begin
     NEW.run_after := coalesce(NEW.run_after, now() + interval '1 second');
     NEW.lease_owner := null;
     NEW.lease_until := null;
-    NEW.last_worker_id := coalesce(NEW.last_worker_id, OLD.last_worker_id);
+
   elsif NEW.status <> 'running' then
     NEW.lease_owner := null;
     NEW.lease_until := null;
