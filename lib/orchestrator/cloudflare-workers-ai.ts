@@ -28,11 +28,15 @@ function endOfUtcDayMs(now = Date.now()): number {
 }
 
 function getWorkersAI(runtimeEnv?: unknown): WorkersAI {
+  const runtimeSupplied = runtimeEnv !== undefined && runtimeEnv !== null;
   const direct = runtimeEnv && typeof runtimeEnv === "object"
     ? (runtimeEnv as { AI?: unknown }).AI
     : undefined;
   if (direct && typeof direct === "object" && typeof (direct as { run?: unknown }).run === "function") {
     return direct as WorkersAI;
+  }
+  if (runtimeSupplied) {
+    throw new Error("Cloudflare Workers AI binding is missing from the supplied runtime environment");
   }
   const context = getCloudflareContext();
   const ai = (context.env as { AI?: unknown }).AI;
