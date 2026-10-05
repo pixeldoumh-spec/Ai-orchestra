@@ -1,5 +1,8 @@
 "use client";
 
+
+import { OrchestraShell } from "@/components/OrchestraShell";
+
 import { useEffect, useState } from "react";
 
 export default function BillingPage() {
@@ -49,7 +52,7 @@ export default function BillingPage() {
     window.location.href = b.url;
   }
 
-  if (!data) return <main className="shell"><section className="card"><b>{message || "Loading billing…"}</b></section></main>;
+  if (!data) return <OrchestraShell title="Billing & plans" section="Billing"><div className="shell"><section className="card"><b>{message || "Loading billing…"}</b></section></div></OrchestraShell>;
 
   const quota = data.quota ?? {};
   const plan = data.currentPlan ?? {};
@@ -57,19 +60,7 @@ export default function BillingPage() {
   const invoices = data.invoices ?? [];
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">PRODUCTIZATION · V7</div>
-          <h1>Billing & plans</h1>
-        </div>
-        <div className="topMeta">
-          <a href="/">Orchestrator</a>
-          <a href="/enterprise">Enterprise</a>
-          <a href="/marketplace">Connector Marketplace</a>
-        </div>
-      </header>
-
+    <OrchestraShell title="Billing & plans" section="Billing"><div className="shell">
       {message && <div className="card" style={{ padding: 14, marginTop: 16 }}>{message}</div>}
 
       <section className="hero card">
@@ -147,7 +138,7 @@ export default function BillingPage() {
           </div>
         ))}
       </section>
-    </main>
+    </div></OrchestraShell>
   );
 }
 
