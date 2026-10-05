@@ -42,7 +42,9 @@ export default function MarketplacePage() {
 
   if (!data) return <main className="shell"><section className="card"><b>{message || "Loading marketplace…"}</b></section></main>;
 
-  const installs = new Map((data.installs ?? []).map((x: any) => [x.catalog_slug, x]));
+  const installs = new Map<string, any>(
+    (data.installs ?? []).map((x: any) => [String(x.catalog_slug), x] as [string, any]),
+  );
 
   return (
     <main className="shell">
