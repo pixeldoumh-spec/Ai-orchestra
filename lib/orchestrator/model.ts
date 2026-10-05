@@ -363,7 +363,7 @@ function normalizeProvider(value: string | undefined | null): string {
 
 function isFallbackEligible(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
-  return /timeout|timed out|capacity|busy|429|rate limit|quota|allocation|provider error|temporarily unavailable|forbidden|authentication failed|paid plan|required/i.test(message);
+  return /timeout|timed out|capacity|busy|429|rate limit|quota|allocation|provider error|temporarily unavailable|forbidden|authentication failed|paid plan|required|structured model output|could not be parsed|structured output|contract/i.test(message);
 }
 
 function fallbackReason(error: unknown): string {
