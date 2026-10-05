@@ -52,3 +52,11 @@ export function safeWorkerExitStatus(task: RuntimeTaskSnapshot): "queued" | "ter
   if (task.status === "running") return "queued";
   return "continue";
 }
+
+
+export function stepNeedsRecovery(
+  executionLeaseGeneration: number | null | undefined,
+  currentLeaseGeneration: number,
+): boolean {
+  return executionLeaseGeneration == null || executionLeaseGeneration !== currentLeaseGeneration;
+}
