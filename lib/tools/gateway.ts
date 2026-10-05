@@ -321,7 +321,7 @@ async function executeConnectorRead(input: {
   }
 }
 
-export async function invokeTool(agent: AgentDefinition, taskId: string, invocation: ToolInvocation, stepId = "unknown"): Promise<ToolResult> {
+export async function invokeTool(agent: AgentDefinition, taskId: string, invocation: ToolInvocation, stepId = "unknown", runtimeEnv?: unknown): Promise<ToolResult> {
   const tool = builtinTools.find((candidate) => candidate.id === invocation.toolId);
   if (!tool) throw new Error(`Unknown tool: ${invocation.toolId}`);
   if (!agent.tools.includes(tool.id)) throw new Error(`Agent ${agent.id} is not allowed to use ${tool.id}`);
@@ -399,12 +399,27 @@ export async function invokeTool(agent: AgentDefinition, taskId: string, invocat
     const input = invocation.input as { query?: unknown; limit?: unknown } | null;
     const query = String(input?.query ?? "").trim();
     if (!query) throw new Error("knowledge.search requires a query");
+
+    const db = createAdminClient();
+    const { data: task, error: taskError } = await db
+      .from("tasks")
+      .select("created_by")
+      .eq("organization_id", agent.organizationId)
+      .eq("id", taskId)
+      .single();
+    if (taskError) throw new Error(taskError.message);
+    const userId = typeof task?.created_by === "string" ? task.created_by : "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+      throw new Error("Knowledge search requires a valid task owner identity");
+    }
+
     const results = await retrieveKnowledge({
       organizationId: agent.organizationId,
-      userId: "__workspace_agent__",
+      userId,
       query,
       limit: typeof input?.limit === "number" ? input.limit : 8,
       workspaceOnly: true,
+      runtimeEnv,
     });
     const result = {
       output: {
