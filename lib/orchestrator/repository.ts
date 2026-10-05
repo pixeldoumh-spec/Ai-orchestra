@@ -84,6 +84,18 @@ export async function getTask(taskId: string, organizationId: string) {
   return { ...task, steps: steps ?? [], events: events ?? [], artifacts: artifacts ?? [], approvals: approvals ?? [], toolInvocations: toolInvocations ?? [] };
 }
 
+export async function listTasks(organizationId: string, limit = 50) {
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("tasks")
+    .select("id, organization_id, created_by, goal, status, max_cost_cents, spent_cost_cents, plan_version, plan_revision, replan_count, execution_mode, execution_region, planner_model, started_at, finished_at, created_at, updated_at, error")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(Math.min(100, Math.max(1, limit)));
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
 export async function appendEvent(taskId: string, organizationId: string, eventType: string, payload: unknown, actorId?: string) {
   const db = createAdminClient();
   const { error } = await db.from("task_events").insert({ task_id: taskId, organization_id: organizationId, event_type: eventType, actor_type: actorId ? "user" : "system", actor_id: actorId ?? null, payload });
