@@ -98,22 +98,31 @@ export async function planWorkflow(input: {
     .slice(0, 32);
 
   const model = getModelAdapter(input.runtimeEnv);
-  const result = await model.complete({
-    model: getDefaultModel("planner"),
-    system: "You are the planning authority for AI Orchestra. Produce the smallest safe executable DAG that can satisfy the user's goal. Use only listed agents. Prefer useful parallelism for independent work. Include a verification step that covers all terminal work. Separate evidence gathering, reasoning, synthesis and verification. Do not fabricate tool access or external facts. Return only the required structured plan. Never expose private chain-of-thought.",
-    user: JSON.stringify({
-      goal: input.goal,
-      agents: agentCatalog,
-      priorResults: input.priorResults?.slice(-12) ?? [],
-      failureContext: input.failureContext ?? null,
-    }),
-    outputSchema: PLANNER_OUTPUT_SCHEMA,
-    reasoningEffort: (process.env.AI_PLANNER_REASONING_EFFORT as "low" | "medium" | "high" | "xhigh" | undefined) ?? "high",
-    verbosity: "low",
-  });
 
-  const parsed = plannerResponseSchema.parse(result.output);
-  const plan: WorkflowPlan = { version: "v3", rationale: parsed.rationale || undefined, steps: parsed.steps };
-  validateSpecializedPlan(plan, input.agents);
-  return validatePlan(plan, available);
+  try {
+    const result = await model.complete({
+      model: getDefaultModel("planner"),
+      system: "You are the planning authority for AI Orchestra. Produce the smallest safe executable DAG that can satisfy the user's goal. Use only listed agents. Prefer useful parallelism for independent work. Include a verification step that covers all terminal work. Separate evidence gathering, reasoning, synthesis and verification. Do not fabricate tool access or external facts. Return only the required structured plan. Never expose private chain-of-thought.",
+      user: JSON.stringify({
+        goal: input.goal,
+        agents: agentCatalog,
+        priorResults: input.priorResults?.slice(-12) ?? [],
+        failureContext: input.failureContext ?? null,
+      }),
+      outputSchema: PLANNER_OUTPUT_SCHEMA,
+      reasoningEffort: (process.env.AI_PLANNER_REASONING_EFFORT as "low" | "medium" | "high" | "xhigh" | undefined) ?? "high",
+      verbosity: "low",
+    });
+
+    const parsed = plannerResponseSchema.parse(result.output);
+    const plan: WorkflowPlan = { version: "v3", rationale: parsed.rationale || undefined, steps: parsed.steps };
+    validateSpecializedPlan(plan, input.agents);
+    return validatePlan(plan, available);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (/structured model output|could not be parsed|structured output|invalid.*plan|planner selected unavailable agent/i.test(message)) {
+      return buildAdaptiveFallbackPlan(input.goal, fallbackIds(input.agents));
+    }
+    throw error;
+  }
 }
