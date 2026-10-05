@@ -529,7 +529,7 @@ async function runStep(input: {
 
         let toolResult: Awaited<ReturnType<typeof invokeTool>>;
         try {
-          toolResult = await invokeTool(agent, taskId, { toolId, input: args }, step.id);
+          toolResult = await invokeTool(agent, taskId, { toolId, input: args }, step.id, runtimeEnv);
         } catch (error) {
           const toolError = error instanceof Error ? error.message.slice(0, 800) : "Tool execution failed";
           await appendEvent(taskId, organizationId, "tool.failed", {
