@@ -21,5 +21,5 @@ export default function SignIn() {
 }
 
 function AuthShell({ title, children }: { title: string; children: ReactNode }) {
-  return <main className="auth"><div className="card authCard"><div className="pill">AGENT CONTROL PLANE</div><h1>{title}</h1>{children}</div></main>;
+  return <main className="auth"><div className="card authCard"><div className="authBrand"><span className="brandMark">A</span><span>AI Orchestra</span></div><h1>{title}</h1>{children}</div></main>;
 }
