@@ -273,7 +273,9 @@ function normalizeChatTools(tools: ModelTool[] | undefined): unknown[] {
 }
 
 function usesChatCompletions(model: string): boolean {
-  return model === "@cf/zai-org/glm-4.7-flash";
+  return model === "@cf/zai-org/glm-4.7-flash"
+    || model === "@cf/openai/gpt-oss-20b"
+    || model === "@cf/openai/gpt-oss-120b";
 }
 
 function chatContent(value: unknown): string {
@@ -416,7 +418,9 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
           messages: normalizeChatMessages(input),
           stream: false,
           max_tokens: maxTokens,
-          chat_template_kwargs: { enable_thinking: false },
+          ...(model === "@cf/zai-org/glm-4.7-flash"
+            ? { chat_template_kwargs: { enable_thinking: false } }
+            : {}),
         }
       : {
           model,
