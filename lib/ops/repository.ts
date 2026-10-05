@@ -118,3 +118,38 @@ export async function getOperationsDashboard(organizationId: string, days = 30) 
   if (error) throw new Error(error.message);
   return data ?? { summary: {}, tasks: {}, workers: {}, daily: [], models: [] };
 }
+
+
+export async function recordBackgroundDeadLetter(input: {
+  organizationId?: string | null;
+  taskId?: string | null;
+  dispatchId?: string | null;
+  queueMessageId: string;
+  attempts: number;
+  reason: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const db = createAdminClient();
+  const body = JSON.stringify({
+    organizationId: input.organizationId ?? null,
+    taskId: input.taskId ?? null,
+    dispatchId: input.dispatchId ?? null,
+    queueMessageId: input.queueMessageId,
+    attempts: Math.max(1, Math.floor(input.attempts)),
+    metadata: input.metadata ?? {},
+  });
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  const payloadHash = Array.from(new Uint8Array(digest)).map((v) => v.toString(16).padStart(2, "0")).join("");
+  const { data, error } = await db.rpc("record_background_dead_letter", {
+    p_organization_id: input.organizationId ?? null,
+    p_task_id: input.taskId ?? null,
+    p_dispatch_id: input.dispatchId ?? null,
+    p_queue_message_id: input.queueMessageId,
+    p_attempts: Math.max(1, Math.floor(input.attempts)),
+    p_reason: input.reason.slice(0, 500),
+    p_payload_hash: payloadHash,
+    p_metadata: input.metadata ?? {},
+  });
+  if (error) throw new Error(error.message);
+  return Number(data);
+}
