@@ -311,7 +311,7 @@ function normalizeChatMessages(input: ModelCompleteInput): unknown[] {
       const args = typeof candidate.arguments === "string" ? candidate.arguments : "{}";
       messages.push({
         role: "assistant",
-        content: null,
+        content: "",
         tool_calls: [{
           id: callId,
           type: "function",
