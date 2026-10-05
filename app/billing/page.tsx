@@ -9,6 +9,7 @@ export default function BillingPage() {
   const [data, setData] = useState<any>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [cancelled, setCancelled] = useState(false);
 
   async function load() {
     const r = await fetch("/api/billing");
@@ -34,6 +35,17 @@ export default function BillingPage() {
       return;
     }
     window.location.href = b.url;
+  }
+
+
+  async function cancelSubscription() {
+    if (!window.confirm("Schedule this subscription to cancel at the end of the current billing period?")) return;
+    setBusy("cancel"); setMessage("");
+    const r = await fetch("/api/billing/cancel", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+    const b = await r.json().catch(() => ({}));
+    setBusy(null);
+    if (!r.ok) { setMessage(b.error ?? "Cancellation unavailable"); return; }
+    setCancelled(true); setMessage("Cancellation scheduled for the end of the current billing period."); await load();
   }
 
   async function portal() {
@@ -75,6 +87,8 @@ export default function BillingPage() {
           )}
           <div className="composerRow">
             {data.customer?.external_customer_id && <button className="secondary" disabled={busy === "portal"} onClick={portal}>{busy === "portal" ? "Opening…" : "Manage billing"}</button>}
+            {!subscriptions[0]?.cancel_at_period_end && !cancelled && <button className="secondary" disabled={busy === "cancel"} onClick={cancelSubscription}>{busy === "cancel" ? "Scheduling…" : "Cancel at period end"}</button>}
+            {(subscriptions[0]?.cancel_at_period_end || cancelled) && <span className="status verified">CANCELLATION SCHEDULED</span>}
           </div>
         </div>
         <div className="healthGrid">
