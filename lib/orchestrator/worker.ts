@@ -181,6 +181,7 @@ export async function processTask(taskId: string, organizationId: string, worker
             .filter((x) => x.plan_revision === snapshot.plan_revision && x.status === "verified")
             .map((x) => ({ stepId: stepPlanId(x), result: x.result })),
           failureContext: { stepId: failed.stepId, agentId: agent?.id ?? failedStep?.agent_id ?? "unknown", error: reason },
+          runtimeEnv,
         });
         await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
         await replanTask({
