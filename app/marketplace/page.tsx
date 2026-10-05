@@ -1,5 +1,8 @@
 "use client";
 
+
+import { OrchestraShell } from "@/components/OrchestraShell";
+
 import { useEffect, useState } from "react";
 
 export default function MarketplacePage() {
@@ -40,26 +43,14 @@ export default function MarketplacePage() {
     setBusy(null);
   }
 
-  if (!data) return <main className="shell"><section className="card"><b>{message || "Loading marketplace…"}</b></section></main>;
+  if (!data) return <OrchestraShell title="Marketplace" section="Marketplace"><div className="shell"><section className="card"><b>{message || "Loading marketplace…"}</b></section></div></OrchestraShell>;
 
   const installs = new Map<string, any>(
     (data.installs ?? []).map((x: any) => [String(x.catalog_slug), x] as [string, any]),
   );
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">PRODUCTIZATION · V7</div>
-          <h1>Connector Marketplace</h1>
-        </div>
-        <div className="topMeta">
-          <a href="/">Orchestrator</a>
-          <a href="/billing">Billing</a>
-          <a href="/enterprise">Enterprise</a>
-        </div>
-      </header>
-
+    <OrchestraShell title="Marketplace" section="Marketplace"><div className="shell">
       {message && <div className="card" style={{ padding: 14, marginTop: 16 }}>{message}</div>}
 
       <section className="hero card">
@@ -109,7 +100,7 @@ export default function MarketplacePage() {
           );
         })}
       </section>
-    </main>
+    </div></OrchestraShell>
   );
 }
 
