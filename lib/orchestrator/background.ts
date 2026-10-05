@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { appendEvent, recoverStaleTaskLease } from "./repository";
 import { enqueueTask, newDispatchId } from "./queue";
 import { startBackgroundWorkerRun, finishBackgroundWorkerRun } from "@/lib/ops/repository";
-import { isDispatchEligible } from "@/lib/core/runtime";
+import { isDispatchEligible, isStaleLeaseTakeoverEligible } from "@/lib/core/runtime";
 
 function hydrateRuntimeEnvironment(runtimeEnv?: unknown) {
   if (!runtimeEnv || typeof runtimeEnv !== "object") return;
@@ -37,21 +37,33 @@ export async function dispatchDueTasks(runtimeEnv: unknown, trigger: "cron" | "m
     .limit(limit * 4);
   if (error) throw new Error(error.message);
 
+  const staleLeaseTakeoverSeconds = Math.min(
+    1800,
+    Math.max(300, Number(process.env.TASK_STALE_LEASE_TAKEOVER_SECONDS ?? "300")),
+  );
   const eligible = (candidates ?? [])
-    .filter((task) =>
-      isDispatchEligible(
-        {
-          status: task.status,
-          run_after: task.run_after,
-          lease_until: task.lease_until,
-          last_heartbeat_at: task.last_heartbeat_at,
-          last_dispatched_at: task.last_dispatched_at,
-        },
-        now.getTime(),
-        staleHeartbeatSeconds * 1000,
-        dispatchCooldownSeconds * 1000,
-      ),
-    )
+    .filter((task) => {
+      const snapshot = {
+        status: task.status,
+        run_after: task.run_after,
+        lease_until: task.lease_until,
+        last_heartbeat_at: task.last_heartbeat_at,
+        last_dispatched_at: task.last_dispatched_at,
+      };
+      return (
+        isDispatchEligible(
+          snapshot,
+          now.getTime(),
+          staleHeartbeatSeconds * 1000,
+          dispatchCooldownSeconds * 1000,
+        ) ||
+        isStaleLeaseTakeoverEligible(
+          snapshot,
+          now.getTime(),
+          staleLeaseTakeoverSeconds * 1000,
+        )
+      );
+    })
     .slice(0, limit);
 
   const dispatched: Array<{ taskId: string; dispatchId: string }> = [];
