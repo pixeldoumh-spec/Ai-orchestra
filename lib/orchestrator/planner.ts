@@ -77,6 +77,7 @@ export async function planWorkflow(input: {
   agents: AgentDefinition[];
   priorResults?: unknown[];
   failureContext?: { stepId: string; agentId: string; error: string };
+  runtimeEnv?: unknown;
 }): Promise<WorkflowPlan> {
   const available = new Set(input.agents.filter((agent) => agent.status !== "offline").map((agent) => agent.id));
   if (available.size < 4) throw new Error("At least four non-offline agents are required for V3 orchestration");
@@ -96,7 +97,7 @@ export async function planWorkflow(input: {
     }))
     .slice(0, 32);
 
-  const model = getModelAdapter();
+  const model = getModelAdapter(input.runtimeEnv);
   const result = await model.complete({
     model: getDefaultModel("planner"),
     system: "You are the planning authority for AI Orchestra. Produce the smallest safe executable DAG that can satisfy the user's goal. Use only listed agents. Prefer useful parallelism for independent work. Include a verification step that covers all terminal work. Separate evidence gathering, reasoning, synthesis and verification. Do not fabricate tool access or external facts. Return only the required structured plan. Never expose private chain-of-thought.",
