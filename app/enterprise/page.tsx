@@ -207,7 +207,7 @@ export default function EnterprisePage() {
                 <option value="">Member</option>{(data?.members ?? []).map((m: any) => <option key={m.user_id} value={m.user_id}>{String(m.user_id).slice(0, 8)}…</option>)}
               </select>
               <select value={teamMemberTeamId} onChange={(x) => setTeamMemberTeamId(x.target.value)}>
-                <option value="">Team</option>{teams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                <option value="">Team</option>{(data?.teams ?? []).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
               <select value={teamMemberRole} onChange={(x) => setTeamMemberRole(x.target.value)}><option value="member">member</option><option value="lead">lead</option></select>
               <button disabled={!teamMemberUserId || !teamMemberTeamId} onClick={() => void addToTeam}>Add to team</button>
