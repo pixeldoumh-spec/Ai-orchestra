@@ -142,7 +142,8 @@ export async function processTask(taskId: string, organizationId: string, worker
         break;
       }
 
-      const ready = readyStepIds(snapshot.steps);
+      // Only the active plan revision may enter execution. Historical revisions remain audit history.
+      const ready = readyStepIds(currentSteps);
       if (ready.length === 0) {
         const currentSteps = snapshot.steps.filter((step) => step.plan_revision === snapshot.plan_revision);
         const unresolved = currentSteps.some((step) => ["queued", "running"].includes(step.status));
@@ -180,7 +181,7 @@ export async function processTask(taskId: string, organizationId: string, worker
       }
 
       const batchResults = await Promise.all(batch.map(async (stepId) => {
-        const step = snapshot.steps.find((item) => item.id === stepId);
+        const step = currentSteps.find((item) => item.id === stepId);
         const agent = step ? agentMap.get(step.agent_id) : undefined;
         if (!step || !agent) throw new Error(`Agent for step ${stepId} is not registered`);
         return runStep({
