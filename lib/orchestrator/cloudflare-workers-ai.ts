@@ -98,15 +98,81 @@ function extractOutputText(output: unknown): string {
   const parts: string[] = [];
   for (const item of output) {
     if (!item || typeof item !== "object") continue;
-    const candidate = item as { type?: unknown; content?: unknown };
-    if (candidate.type !== "message" || !Array.isArray(candidate.content)) continue;
+    const candidate = item as { type?: unknown; content?: unknown; text?: unknown };
+    if ((candidate.type === "output_text" || candidate.type === "text") && typeof candidate.text === "string") {
+      parts.push(candidate.text);
+      continue;
+    }
+    if (candidate.type !== "message") continue;
+    if (typeof candidate.content === "string") {
+      parts.push(candidate.content);
+      continue;
+    }
+    if (!Array.isArray(candidate.content)) continue;
     for (const part of candidate.content) {
       if (!part || typeof part !== "object") continue;
       const piece = part as { type?: unknown; text?: unknown };
-      if (piece.type === "output_text" && typeof piece.text === "string") parts.push(piece.text);
+      if ((piece.type === "output_text" || piece.type === "text") && typeof piece.text === "string") {
+        parts.push(piece.text);
+      }
     }
   }
   return parts.join("\n");
+}
+
+function extractChoiceOutput(response: Record<string, unknown>): {
+  outputText: string;
+  functionCalls: ModelFunctionCall[];
+  responseItems: unknown[];
+} {
+  const choices = Array.isArray(response.choices) ? response.choices : [];
+  const first = choices[0] && typeof choices[0] === "object"
+    ? choices[0] as Record<string, unknown>
+    : {};
+  const message = first.message && typeof first.message === "object"
+    ? first.message as Record<string, unknown>
+    : {};
+  const outputText = typeof message.content === "string"
+    ? message.content
+    : Array.isArray(message.content)
+      ? message.content
+          .map((part) => {
+            if (!part || typeof part !== "object") return "";
+            const piece = part as { text?: unknown };
+            return typeof piece.text === "string" ? piece.text : "";
+          })
+          .filter(Boolean)
+          .join("\n")
+      : "";
+  const functionCalls = Array.isArray(message.tool_calls)
+    ? message.tool_calls.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const call = item as Record<string, unknown>;
+        const fn = call.function && typeof call.function === "object"
+          ? call.function as Record<string, unknown>
+          : {};
+        if (typeof call.id !== "string" || typeof fn.name !== "string") return [];
+        const args = typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments ?? {});
+        return [{ callId: call.id, name: fn.name, arguments: args }];
+      })
+    : [];
+  const responseItems: unknown[] = [];
+  if (outputText) {
+    responseItems.push({
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: outputText }],
+    });
+  }
+  for (const call of functionCalls) {
+    responseItems.push({
+      type: "function_call",
+      call_id: call.callId,
+      name: call.name,
+      arguments: call.arguments,
+    });
+  }
+  return { outputText, functionCalls, responseItems };
 }
 
 function extractFunctionCalls(output: unknown): ModelFunctionCall[] {
@@ -385,13 +451,20 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
       const response = result as Record<string, unknown>;
       const chat = usesChatCompletions(model);
       const chatParsed = chat ? extractChatResponse(response) : null;
-      const output = chat ? (chatParsed?.responseItems ?? []) : (Array.isArray(response.output) ? response.output : []);
+      const compat = !chat ? extractChoiceOutput(response) : null;
+      const output = chat
+        ? (chatParsed?.responseItems ?? [])
+        : (Array.isArray(response.output) ? response.output : compat?.responseItems ?? []);
       const outputText = chat
         ? (chatParsed?.outputText ?? "")
-        : (typeof response.output_text === "string" ? response.output_text : extractOutputText(output));
+        : (typeof response.output_text === "string"
+            ? response.output_text
+            : extractOutputText(output) || compat?.outputText || "");
       const functionCalls = chat
         ? (chatParsed?.functionCalls ?? [])
-        : extractFunctionCalls(output);
+        : extractFunctionCalls(output).length > 0
+          ? extractFunctionCalls(output)
+          : (compat?.functionCalls ?? []);
       const usage = chat ? {
         inputTokens: Number.isFinite(chatParsed?.inputTokens ?? 0) ? Math.max(0, Number(chatParsed?.inputTokens ?? 0)) : 0,
         cachedInputTokens: Number.isFinite(chatParsed?.cachedInputTokens ?? 0) ? Math.max(0, Number(chatParsed?.cachedInputTokens ?? 0)) : 0,
