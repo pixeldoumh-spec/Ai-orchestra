@@ -218,8 +218,39 @@ export async function updateStepOwned(
   if (ownerError) throw new Error(ownerError.message);
   if (!owner) throw new TaskLeaseLostError();
 
-  const { error } = await db.from("task_steps").update(patch).eq("id", stepId).eq("task_id", taskId);
+  const ownedPatch = {
+    ...patch,
+    ...(patch.status === "running"
+      ? {
+          execution_worker_id: workerId,
+          execution_lease_generation: leaseGeneration,
+        }
+      : {}),
+  };
+  const { data, error } = await db
+    .from("task_steps")
+    .update(ownedPatch)
+    .eq("id", stepId)
+    .eq("task_id", taskId)
+    .select("id")
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  if (!data) throw new TaskLeaseLostError();
+}
+
+export async function recoverStaleTaskSteps(
+  taskId: string,
+  organizationId: string,
+  leaseGeneration: number,
+) {
+  const db = createAdminClient();
+  const { data, error } = await db.rpc("recover_stale_task_steps", {
+    p_task_id: taskId,
+    p_organization_id: organizationId,
+    p_current_lease_generation: leaseGeneration,
+  });
+  if (error) throw new Error(error.message);
+  return Number(data ?? 0);
 }
 
 export async function updateStep(stepId: string, patch: Record<string, unknown>) {
