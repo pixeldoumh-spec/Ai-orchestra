@@ -88,7 +88,7 @@ export default function BillingPage() {
           <div className="composerRow">
             {data.customer?.external_customer_id && <button className="secondary" disabled={busy === "portal"} onClick={portal}>{busy === "portal" ? "Opening…" : "Manage billing"}</button>}
             {!subscriptions[0]?.cancel_at_period_end && !cancelled && <button className="secondary" disabled={busy === "cancel"} onClick={cancelSubscription}>{busy === "cancel" ? "Scheduling…" : "Cancel at period end"}</button>}
-            {(subscriptions[0]?.cancel_at_period_end || cancelled) && <span className="status verified">CANCELLATION SCHEDULED</span>}}
+            {(subscriptions[0]?.cancel_at_period_end || cancelled) && <span className="status verified">CANCELLATION SCHEDULED</span>}
           </div>
         </div>
         <div className="healthGrid">
