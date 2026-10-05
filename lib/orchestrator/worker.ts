@@ -207,7 +207,9 @@ export async function processTask(taskId: string, organizationId: string, worker
     return { claimed: true, task: await getTask(taskId, organizationId) };
   } catch (error) {
     if (error instanceof TaskLeaseLostError || /task lease lost/i.test(error instanceof Error ? error.message : String(error))) {
-      return { claimed: true, leaseLost: true, task: await getTask(taskId, organizationId) };
+      const current = (await getTask(taskId, organizationId)) as PersistedTask;
+      if (current.status === "awaiting_approval") await requeueRunningStepsForApproval(taskId);
+      return { claimed: true, leaseLost: true, task: current };
     }
     const message = error instanceof Error ? error.message : "Unknown worker error";
     const retryAt = new Date(
@@ -494,6 +496,7 @@ async function runStep(input: {
             toolResult.approvalReason ?? "Approval required",
             toolResult.connectorRequestId ?? null,
           );
+          await requeueRunningStepsForApproval(taskId, step.id);
           await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "awaiting_approval" });
           await appendEvent(taskId, organizationId, "approval.requested", { stepId: step.id, toolId, reason: toolResult.approvalReason });
           return { stepId: step.id, status: "awaiting_approval", usageCents: totalUsageCents };
@@ -634,6 +637,23 @@ async function recordUsage(
   } else {
     throw new Error("Task lease ownership is required for usage mutation");
   }
+}
+
+async function requeueRunningStepsForApproval(taskId: string, exceptStepId?: string) {
+  const db = createAdminClient();
+  let query = db
+    .from("task_steps")
+    .update({
+      status: "queued",
+      run_after: new Date().toISOString(),
+      error: null,
+      finished_at: null,
+    })
+    .eq("task_id", taskId)
+    .eq("status", "running");
+  if (exceptStepId) query = query.neq("id", exceptStepId);
+  const { error } = await query;
+  if (error) throw new Error(error.message);
 }
 
 async function createApproval(taskId: string, organizationId: string, stepId: string, agentId: string, reason: string, connectorRequestId?: string | null) {
