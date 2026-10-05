@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { randomId } from "@/lib/core/security";
 import type { WorkflowPlan } from "@/lib/core/workflow";
+import { isStaleLeaseTakeoverEligible } from "@/lib/core/runtime";
 
 function materializeSteps(taskId: string, plan: WorkflowPlan, revision: number) {
   const idMap = new Map(plan.steps.map((step, index) => [step.id, `${taskId}_step_r${revision}_${index + 1}`]));
@@ -109,7 +110,67 @@ export class TaskLeaseLostError extends Error {
   }
 }
 
+async function recoverStaleLeaseBeforeClaim(
+  taskId: string,
+  organizationId: string,
+): Promise<boolean> {
+  const db = createAdminClient();
+  const staleMs = Math.min(
+    1_800_000,
+    Math.max(300_000, Number(process.env.TASK_STALE_LEASE_TAKEOVER_SECONDS ?? "300") * 1000),
+  );
+  const now = Date.now();
+  const cutoff = new Date(now - staleMs).toISOString();
+  const nowIso = new Date(now).toISOString();
+
+  const { data, error } = await db
+    .from("tasks")
+    .select("id,status,lease_until,last_heartbeat_at")
+    .eq("id", taskId)
+    .eq("organization_id", organizationId)
+    .eq("status", "running")
+    .gt("lease_until", nowIso)
+    .lt("last_heartbeat_at", cutoff)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data || !isStaleLeaseTakeoverEligible({
+    status: data.status,
+    lease_until: data.lease_until,
+    last_heartbeat_at: data.last_heartbeat_at,
+  }, now, staleMs)) {
+    return false;
+  }
+
+  const { data: recovered, error: recoverError } = await db
+    .from("tasks")
+    .update({
+      status: "queued",
+      run_after: nowIso,
+      lease_owner: null,
+      lease_until: null,
+      last_heartbeat_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq("id", taskId)
+    .eq("organization_id", organizationId)
+    .eq("status", "running")
+    .gt("lease_until", nowIso)
+    .lt("last_heartbeat_at", cutoff)
+    .select("id")
+    .maybeSingle();
+
+  if (recoverError) throw new Error(recoverError.message);
+  if (!recovered) return false;
+
+  await appendEvent(taskId, organizationId, "task.stale_lease_recovered", {
+    reason: "heartbeat_stale_while_lease_remained_active",
+    staleLeaseTakeoverSeconds: Math.floor(staleMs / 1000),
+  });
+  return true;
+}
+
 export async function claimTask(taskId: string, organizationId: string, workerId: string) {
+  await recoverStaleLeaseBeforeClaim(taskId, organizationId);
   const db = createAdminClient();
   const leaseSeconds = Number(process.env.TASK_LEASE_SECONDS ?? "600");
   const staleHeartbeatSeconds = Number(process.env.TASK_STALE_HEARTBEAT_SECONDS ?? "120");
