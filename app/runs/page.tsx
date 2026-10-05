@@ -19,6 +19,8 @@ export default function RunsPage(){
     const b=await r.json().catch(()=>({}));
     if(!r.ok){setMessage(b.error??"Run history unavailable");return;}
     setTasks(b.tasks??[]);
+    const requested = new URLSearchParams(window.location.search).get("task");
+    if(!selected && requested && (b.tasks??[]).some((t:any)=>t.id===requested)){ await selectTask(requested); return; }
     if(selected){
       const d=await fetch("/api/tasks/"+encodeURIComponent(selected.id));
       if(d.ok) setSelected((await d.json()).task??null);
