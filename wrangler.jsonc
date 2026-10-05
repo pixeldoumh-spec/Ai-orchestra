@@ -56,6 +56,8 @@
     "AI_FALLBACK_PROVIDER": "workers_ai",
     "AI_FALLBACK_MODEL": "@cf/zai-org/glm-4.7-flash",
     "BACKGROUND_DISPATCH_LIMIT": "12",
+    "BACKGROUND_MAX_BATCHES_PER_INVOCATION": "1",
+    "TASK_MAX_PARALLEL_STEPS": "1",
     "TASK_STREAM_MAX_MS": "240000"
   },
   "previews": {
