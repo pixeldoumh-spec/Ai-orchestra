@@ -544,7 +544,7 @@ function TaskPanel({ task, teams }: { task: Task; teams: any[] }) {
             <div className={"stepMarker " + step.status}>{step.status === "verified" || step.status === "succeeded" ? <Icon name="check" size={13} /> : i + 1}</div>
             <div className="stepDetails">
               <div className="stepLine">
-                <strong>{prettyAgent(step.agent_id)}</strong>
+                <strong>{prettyStepLabel(step)}</strong>
                 <span>{formatStatus(step.status)}</span>
               </div>
               <div className="stepObjective">{step.objective}</div>
@@ -637,10 +637,28 @@ function TaskPanel({ task, teams }: { task: Task; teams: any[] }) {
       <div className="runFooter">
         <span>Spend {(task.spent_cost_cents ?? 0)}¢ / {(task.max_cost_cents ?? 0)}¢</span>
         <span>{steps.length} planned steps</span>
-        <span>Background worker active</span>
+        <span>{executionLabel(task.status)}</span>
       </div>
     </section>
   );
+}
+
+function prettyStepLabel(step:any){
+  const planId = typeof step?.checkpoint?.planStepId === "string" ? step.checkpoint.planStepId : "";
+  if(planId === "research_primary") return "Research · primary";
+  if(planId === "research_secondary") return "Research · complementary";
+  return prettyAgent(step?.agent_id);
+}
+
+function executionLabel(status:string){
+  switch(String(status??"queued")){
+    case "running": return "Background worker active";
+    case "awaiting_approval": return "Waiting for approval";
+    case "verified": return "Execution complete";
+    case "failed": return "Execution failed";
+    case "cancelled": return "Execution cancelled";
+    default: return "Queued for background execution";
+  }
 }
 
 function prettyAgent(value: string) {
