@@ -400,7 +400,7 @@ export default function Home() {
                 {recentTasks.length===0 ? (
                   <div className="emptyState compact"><div className="emptyIcon"><Icon name="spark" size={17} /></div><strong>Your next run will appear here</strong><span>Orchestra will keep the run addressable after you leave this page.</span></div>
                 ) : recentTasks.map((t:any)=>(
-                  <a key={t.id} href="/runs?task="+encodeURIComponent(t.id) className="recentRunItem">
+                  <a key={t.id} href={"/runs?task=" + encodeURIComponent(t.id)} className="recentRunItem">
                     <div><strong>{t.goal}</strong><span>{t.id} · {formatHomeStatus(t.status)}</span></div>
                     <span>{t.spent_cost_cents??0}¢</span>
                   </a>
