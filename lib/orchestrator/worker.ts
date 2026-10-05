@@ -73,6 +73,7 @@ export async function processTask(taskId: string, organizationId: string, worker
   const claimed = await claimTask(taskId, organizationId, workerId);
   if (!claimed) return { claimed: false, task: await getTask(taskId, organizationId) };
   const leaseGeneration = Number(claimed.lease_generation ?? 0);
+  const leaseGeneration = Number(claimed.lease_generation ?? 0);
 
   const model = getModelAdapter(runtimeEnv);
   const agents = await listAgents(organizationId);
@@ -151,7 +152,7 @@ export async function processTask(taskId: string, organizationId: string, worker
       const spent = await recalculateTaskSpend(taskId, organizationId, workerId, leaseGeneration);
       if (spent > Number(snapshot.max_cost_cents)) {
         const message = `Task budget exceeded: ${spent} > ${snapshot.max_cost_cents} cents`;
-        await updateTask(taskId, { status: "failed", error: message, completed_at: new Date().toISOString() });
+        await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "failed", error: message, completed_at: new Date().toISOString() });
         await appendEvent(taskId, organizationId, "task.budget_exceeded", { spent, maxCostCents: snapshot.max_cost_cents });
         break;
       }
@@ -205,22 +206,28 @@ export async function processTask(taskId: string, organizationId: string, worker
 
     return { claimed: true, task: await getTask(taskId, organizationId) };
   } catch (error) {
+    if (error instanceof TaskLeaseLostError || /task lease lost/i.test(error instanceof Error ? error.message : String(error))) {
+      return { claimed: true, leaseLost: true, task: await getTask(taskId, organizationId) };
+    }
     const message = error instanceof Error ? error.message : "Unknown worker error";
     const retryAt = new Date(
       Date.now() + Math.min(60_000, Math.max(5_000, Number(process.env.WORKER_ERROR_RETRY_MS ?? "30000"))),
     ).toISOString();
-    await appendEvent(taskId, organizationId, "task.worker_error", { message, retryAt });
-    await updateTask(taskId, {
-      status: "queued",
-      error: message,
-      run_after: retryAt,
-      completed_at: null,
-      lease_owner: null,
-      lease_until: null,
-    });
+    try {
+      await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, {
+        status: "queued",
+        error: message,
+        run_after: retryAt,
+        completed_at: null,
+      });
+      await appendEvent(taskId, organizationId, "task.worker_error", { message, retryAt });
+    } catch (ownershipError) {
+      if (!(ownershipError instanceof TaskLeaseLostError)) throw ownershipError;
+      return { claimed: true, leaseLost: true, task: await getTask(taskId, organizationId) };
+    }
     return { claimed: true, workerError: true, task: await getTask(taskId, organizationId) };
   } finally {
-    await db.from("tasks").update({ lease_owner: null, lease_until: null }).eq("id", taskId).eq("lease_owner", workerId);
+    await settleTaskLease(taskId, organizationId, workerId, leaseGeneration).catch(() => null);
   }
 }
 
