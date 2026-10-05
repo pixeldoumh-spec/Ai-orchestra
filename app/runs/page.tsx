@@ -59,6 +59,9 @@ export default function RunsPage(){
     return ()=>{live=false;};
   },[selected?.id]);
 
+  const currentRevision = selected?.plan_revision ?? 1;
+  const currentSteps = (selected?.steps ?? []).filter((s:any) => s.plan_revision === currentRevision);
+
   async function start(){
     if(!selected) return;
     setBusy("start");
@@ -119,7 +122,7 @@ export default function RunsPage(){
         </div>
 
         <div className="executionTimeline">
-          {(selected.steps??[]).filter((s:any)=>s.plan_revision===(selected.plan_revision??1)).map((s:any,i:number)=>(
+          {currentSteps.map((s:any,i:number)=>(
             <div className="executionStep" key={s.id}>
               <div className={"stepMarker "+s.status}>{["verified","succeeded","completed"].includes(s.status)?"✓":i+1}</div>
               <div className="stepDetails"><div className="stepLine"><strong>{pretty(s.agent_id)}</strong><span>{formatStatus(s.status)}</span></div><div className="stepObjective">{s.objective}</div><div className="stepTrack"><span style={{width:stepWidth(s.status)}}/></div></div>
@@ -138,10 +141,21 @@ export default function RunsPage(){
           <div className="commentComposer"><input value={comment} onChange={e=>setComment(e.target.value)} placeholder="Add a note to this run…" onKeyDown={e=>{if(e.key==="Enter")void addComment();}}/><button disabled={!comment.trim()||busy==="comment"} onClick={()=>void addComment()}>Add</button></div>
         </div></details>
 
-        <div className="runFooter"><span>Spend {selected.spent_cost_cents??0}¢ / {selected.max_cost_cents??0}¢</span><span>{selected.steps?.length??0} steps</span><span>{selected.execution_mode??"background"} execution</span></div>
+        <div className="runFooter"><span>Spend {selected.spent_cost_cents??0}¢ / {selected.max_cost_cents??0}¢</span><span>{currentSteps.length} planned steps</span><span>{executionLabel(selected.status)}</span></div>
       </>}
     </section>
   </div></OrchestraShell>
+}
+
+function executionLabel(status:string){
+  switch(String(status??"queued")){
+    case "running": return "Background worker active";
+    case "awaiting_approval": return "Waiting for approval";
+    case "verified": return "Execution complete";
+    case "failed": return "Execution failed";
+    case "cancelled": return "Execution cancelled";
+    default: return "Queued for background execution";
+  }
 }
 
 function pretty(v:string){const s=String(v??"specialist").replace(/[_-]+/g," ").trim();return s?s[0].toUpperCase()+s.slice(1):"Specialist"}
