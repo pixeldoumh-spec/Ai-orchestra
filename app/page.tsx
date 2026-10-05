@@ -68,9 +68,11 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 
 const navItems = [
   { href: "/", label: "Home", icon: "home" as IconName },
+  { href: "/runs", label: "Runs", icon: "runs" as IconName },
   { href: "/network", label: "Agent network", icon: "network" as IconName },
   { href: "/knowledge", label: "Knowledge", icon: "knowledge" as IconName },
   { href: "/marketplace", label: "Marketplace", icon: "marketplace" as IconName },
+  { href: "/connectors", label: "Connectors", icon: "marketplace" as IconName },
   { href: "/billing", label: "Billing", icon: "billing" as IconName },
   { href: "/enterprise", label: "Workspace", icon: "enterprise" as IconName },
 ];
@@ -246,7 +248,7 @@ export default function Home() {
         <nav className="orchestraNav" aria-label="Primary navigation">
           <div className="navGroup">
             <div className="navLabel">Workspace</div>
-            {navItems.slice(0, 4).map((item) => (
+            {navItems.slice(0, 6).map((item) => (
               <a className={"navItem " + (item.href === "/" ? "active" : "")} href={item.href} key={item.href}>
                 <Icon name={item.icon} size={15} />
                 <span>{item.label}</span>
@@ -256,7 +258,7 @@ export default function Home() {
 
           <div className="navGroup">
             <div className="navLabel">Manage</div>
-            {navItems.slice(4).map((item) => (
+            {navItems.slice(6).map((item) => (
               <a className="navItem" href={item.href} key={item.href}>
                 <Icon name={item.icon} size={15} />
                 <span>{item.label}</span>
