@@ -110,7 +110,7 @@ export class TaskLeaseLostError extends Error {
   }
 }
 
-async function recoverStaleLeaseBeforeClaim(
+export async function recoverStaleTaskLease(
   taskId: string,
   organizationId: string,
 ): Promise<boolean> {
@@ -170,7 +170,7 @@ async function recoverStaleLeaseBeforeClaim(
 }
 
 export async function claimTask(taskId: string, organizationId: string, workerId: string) {
-  await recoverStaleLeaseBeforeClaim(taskId, organizationId);
+  await recoverStaleTaskLease(taskId, organizationId);
   const db = createAdminClient();
   const leaseSeconds = Number(process.env.TASK_LEASE_SECONDS ?? "600");
   const staleHeartbeatSeconds = Number(process.env.TASK_STALE_HEARTBEAT_SECONDS ?? "120");
