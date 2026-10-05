@@ -23,9 +23,11 @@ function Icon({ name }: { name: IconName }) {
 
 const items = [
   { href:"/", label:"Home", icon:"home" as IconName },
+  { href:"/runs", label:"Runs", icon:"runs" as IconName },
   { href:"/network", label:"Agent network", icon:"network" as IconName },
   { href:"/knowledge", label:"Knowledge", icon:"knowledge" as IconName },
   { href:"/marketplace", label:"Marketplace", icon:"marketplace" as IconName },
+  { href:"/connectors", label:"Connectors", icon:"marketplace" as IconName },
   { href:"/billing", label:"Billing", icon:"billing" as IconName },
   { href:"/enterprise", label:"Workspace", icon:"workspace" as IconName },
 ];
@@ -42,11 +44,11 @@ export function OrchestraShell({ children, title, section }: { children: ReactNo
         <nav className="orchestraNav" aria-label="Primary navigation">
           <div className="navGroup">
             <div className="navLabel">Workspace</div>
-            {items.slice(0,4).map((item) => <a key={item.href} className={"navItem " + (active === item.label ? "active" : "")} href={item.href}><Icon name={item.icon}/><span>{item.label}</span></a>)}
+            {items.slice(0,6).map((item) => <a key={item.href} className={"navItem " + (active === item.label ? "active" : "")} href={item.href}><Icon name={item.icon}/><span>{item.label}</span></a>)}
           </div>
           <div className="navGroup">
             <div className="navLabel">Manage</div>
-            {items.slice(4).map((item) => <a key={item.href} className={"navItem " + (active === item.label ? "active" : "")} href={item.href}><Icon name={item.icon}/><span>{item.label}</span></a>)}
+            {items.slice(6).map((item) => <a key={item.href} className={"navItem " + (active === item.label ? "active" : "")} href={item.href}><Icon name={item.icon}/><span>{item.label}</span></a>)}
             <a className="navItem" href="/auth/sign-in"><Icon name="user"/><span>Account</span></a>
           </div>
         </nav>
