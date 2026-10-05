@@ -102,36 +102,123 @@ export async function appendEvent(taskId: string, organizationId: string, eventT
   if (error) throw new Error(error.message);
 }
 
+export class TaskLeaseLostError extends Error {
+  constructor(message = "Task lease lost") {
+    super(message);
+    this.name = "TaskLeaseLostError";
+  }
+}
+
 export async function claimTask(taskId: string, organizationId: string, workerId: string) {
   const db = createAdminClient();
   const leaseSeconds = Number(process.env.TASK_LEASE_SECONDS ?? "600");
-  const now = new Date().toISOString();
-  const until = new Date(Date.now() + leaseSeconds * 1000).toISOString();
-  const { data, error } = await db.from("tasks")
-    .update({ status: "running", lease_owner: workerId, lease_until: until, started_at: new Date().toISOString(), last_heartbeat_at: new Date().toISOString(), last_worker_id: workerId })
-    .eq("id", taskId)
-    .eq("organization_id", organizationId)
-    .in("status", ["queued", "running"])
-    .or(`lease_until.is.null,lease_until.lt.${now}`)
-    .or(`run_after.is.null,run_after.lte.${now}`)
-    .select("*").single();
+  const staleHeartbeatSeconds = Number(process.env.TASK_STALE_HEARTBEAT_SECONDS ?? "120");
+  const { data, error } = await db.rpc("claim_task_lease", {
+    p_task_id: taskId,
+    p_organization_id: organizationId,
+    p_worker_id: workerId,
+    p_lease_seconds: leaseSeconds,
+    p_stale_heartbeat_seconds: staleHeartbeatSeconds,
+  });
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  await appendEvent(taskId, organizationId, "task.claimed", {
+    workerId,
+    leaseUntil: data.leaseUntil ?? null,
+    leaseGeneration: Number(data.leaseGeneration ?? 0),
+  });
+  return {
+    lease_generation: Number(data.leaseGeneration ?? 0),
+    lease_owner: data.leaseOwner ?? workerId,
+    lease_until: data.leaseUntil ?? null,
+    status: "running",
+  };
+}
+
+export async function heartbeatTask(
+  taskId: string,
+  organizationId: string,
+  workerId: string,
+  leaseGeneration: number,
+) {
+  const db = createAdminClient();
+  const leaseSeconds = Number(process.env.TASK_LEASE_SECONDS ?? "600");
+  const { error } = await db.rpc("heartbeat_task_lease", {
+    p_task_id: taskId,
+    p_organization_id: organizationId,
+    p_worker_id: workerId,
+    p_lease_generation: leaseGeneration,
+    p_lease_seconds: leaseSeconds,
+  });
   if (error) {
-    if (error.code === "PGRST116") return null;
+    if (/lease lost/i.test(error.message)) throw new TaskLeaseLostError();
     throw new Error(error.message);
   }
-  await appendEvent(taskId, organizationId, "task.claimed", { workerId, leaseUntil: until });
+}
+
+export async function settleTaskLease(
+  taskId: string,
+  organizationId: string,
+  workerId: string,
+  leaseGeneration: number,
+) {
+  const db = createAdminClient();
+  const delay = Number(process.env.TASK_REQUEUE_DELAY_SECONDS ?? "1");
+  const { data, error } = await db.rpc("settle_task_lease", {
+    p_task_id: taskId,
+    p_organization_id: organizationId,
+    p_worker_id: workerId,
+    p_lease_generation: leaseGeneration,
+    p_requeue_delay_seconds: delay,
+  });
+  if (error) throw new Error(error.message);
   return data;
 }
 
-export async function heartbeatTask(taskId: string, workerId: string) {
+export async function updateTaskOwned(
+  taskId: string,
+  organizationId: string,
+  workerId: string,
+  leaseGeneration: number,
+  patch: Record<string, unknown>,
+) {
   const db = createAdminClient();
-  const leaseSeconds = Number(process.env.TASK_LEASE_SECONDS ?? "600");
-  const now = new Date().toISOString();
-  const { error } = await db.from("tasks").update({
-    lease_until: new Date(Date.now() + leaseSeconds * 1000).toISOString(),
-    last_heartbeat_at: now,
-    last_worker_id: workerId,
-  }).eq("id", taskId).eq("lease_owner", workerId);
+  const { data, error } = await db
+    .from("tasks")
+    .update(patch)
+    .eq("id", taskId)
+    .eq("organization_id", organizationId)
+    .eq("status", "running")
+    .eq("lease_owner", workerId)
+    .eq("lease_generation", leaseGeneration)
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new TaskLeaseLostError();
+}
+
+export async function updateStepOwned(
+  stepId: string,
+  taskId: string,
+  organizationId: string,
+  workerId: string,
+  leaseGeneration: number,
+  patch: Record<string, unknown>,
+) {
+  const db = createAdminClient();
+  const { data: owner, error: ownerError } = await db
+    .from("tasks")
+    .select("id")
+    .eq("id", taskId)
+    .eq("organization_id", organizationId)
+    .eq("status", "running")
+    .eq("lease_owner", workerId)
+    .eq("lease_generation", leaseGeneration)
+    .maybeSingle();
+  if (ownerError) throw new Error(ownerError.message);
+  if (!owner) throw new TaskLeaseLostError();
+
+  const { error } = await db.from("task_steps").update(patch).eq("id", stepId).eq("task_id", taskId);
   if (error) throw new Error(error.message);
 }
 
@@ -147,18 +234,41 @@ export async function updateTask(taskId: string, patch: Record<string, unknown>)
   if (error) throw new Error(error.message);
 }
 
-export async function recalculateTaskSpend(taskId: string): Promise<number> {
+export async function recalculateTaskSpend(
+  taskId: string,
+  organizationId?: string,
+  workerId?: string,
+  leaseGeneration?: number,
+): Promise<number> {
   const db = createAdminClient();
   const { data, error } = await db.from("task_steps").select("usage_cents_total").eq("task_id", taskId);
   if (error) throw new Error(error.message);
   const spent = (data ?? []).reduce((sum, step) => sum + Number(step.usage_cents_total ?? 0), 0);
-  await updateTask(taskId, { spent_cost_cents: spent });
+  if (organizationId && workerId && leaseGeneration != null) {
+    await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { spent_cost_cents: spent });
+  } else {
+    await updateTask(taskId, { spent_cost_cents: spent });
+  }
   return spent;
 }
 
-export async function replanTask(input: { taskId: string; organizationId: string; plan: WorkflowPlan; reason: string; plannerModel?: string | null }) {
+export async function replanTask(input: {
+  taskId: string;
+  organizationId: string;
+  plan: WorkflowPlan;
+  reason: string;
+  plannerModel?: string | null;
+  workerId?: string;
+  leaseGeneration?: number;
+}) {
   const db = createAdminClient();
-  const { data: task, error: taskError } = await db.from("tasks").select("plan_revision, replan_count").eq("id", input.taskId).eq("organization_id", input.organizationId).single();
+  const taskQuery = db.from("tasks")
+    .select("plan_revision, replan_count")
+    .eq("id", input.taskId)
+    .eq("organization_id", input.organizationId);
+  const { data: task, error: taskError } = input.workerId && input.leaseGeneration != null
+    ? await taskQuery.eq("status", "running").eq("lease_owner", input.workerId).eq("lease_generation", input.leaseGeneration).single()
+    : await taskQuery.single();
   if (taskError) throw new Error(taskError.message);
 
   const revision = Number(task.plan_revision ?? 1) + 1;
@@ -173,7 +283,7 @@ export async function replanTask(input: { taskId: string; organizationId: string
   if (cancelError) throw new Error(cancelError.message);
 
   const nextCount = Number(task.replan_count ?? 0) + 1;
-  const { error: updateError } = await db.from("tasks").update({
+  let updateQuery = db.from("tasks").update({
     status: "queued",
     plan_version: `v4.${revision}`,
     plan_revision: revision,
@@ -183,7 +293,15 @@ export async function replanTask(input: { taskId: string; organizationId: string
     run_after: null,
     error: null,
   }).eq("id", input.taskId).eq("organization_id", input.organizationId);
+  if (input.workerId && input.leaseGeneration != null) {
+    updateQuery = updateQuery
+      .eq("status", "running")
+      .eq("lease_owner", input.workerId)
+      .eq("lease_generation", input.leaseGeneration);
+  }
+  const { error: updateError, data: updated } = await updateQuery.select("id").maybeSingle();
   if (updateError) throw new Error(updateError.message);
+  if (!updated && input.workerId && input.leaseGeneration != null) throw new TaskLeaseLostError();
 
   await appendEvent(input.taskId, input.organizationId, "task.replanned", {
     revision,

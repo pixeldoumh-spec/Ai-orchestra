@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { listAgents } from "./registry";
 import { getDefaultModel, getModelAdapter } from "./model";
 import { planWorkflow } from "./planner";
-import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, updateStep, updateTask } from "./repository";
+import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, settleTaskLease, TaskLeaseLostError, updateStepOwned, updateTaskOwned } from "./repository";
 import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, PersistedTask } from "./types";
 import { getModelTools, invokeTool, resolveModelToolId } from "@/lib/tools/gateway";
 import { readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
@@ -72,6 +72,7 @@ export async function processTask(taskId: string, organizationId: string, worker
   hydrateRuntimeEnvironment(runtimeEnv);
   const claimed = await claimTask(taskId, organizationId, workerId);
   if (!claimed) return { claimed: false, task: await getTask(taskId, organizationId) };
+  const leaseGeneration = Number(claimed.lease_generation ?? 0);
 
   const model = getModelAdapter(runtimeEnv);
   const agents = await listAgents(organizationId);
@@ -83,7 +84,7 @@ export async function processTask(taskId: string, organizationId: string, worker
 
   try {
     while (iterations++ < maxBatches) {
-      await heartbeatTask(taskId, workerId);
+      await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
       let snapshot = (await getTask(taskId, organizationId)) as PersistedTask & { approvals?: unknown[] };
       if (["verified", "failed", "cancelled", "awaiting_approval"].includes(snapshot.status)) break;
 
@@ -92,13 +93,14 @@ export async function processTask(taskId: string, organizationId: string, worker
         const currentSteps = snapshot.steps.filter((step) => step.plan_revision === snapshot.plan_revision);
         const unresolved = currentSteps.some((step) => ["queued", "running"].includes(step.status));
         if (!unresolved) {
-          await finalizeTask(snapshot);
+          await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+          await finalizeTask(snapshot, workerId, leaseGeneration);
         } else {
           const wakeAt = currentSteps
             .map((step) => (step.status === "queued" && step.run_after ? Date.parse(step.run_after) : NaN))
             .filter(Number.isFinite)
             .sort((a, b) => a - b)[0];
-          if (wakeAt) await updateTask(taskId, { run_after: new Date(wakeAt).toISOString() });
+          if (wakeAt) await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { run_after: new Date(wakeAt).toISOString() });
         }
         break;
       }
@@ -118,7 +120,7 @@ export async function processTask(taskId: string, organizationId: string, worker
       const batch = selectParallelBatch(ready, stepBudget, remainingBudget);
       if (batch.length === 0) {
         const message = `No ready step fits the remaining task budget (${remainingBudget} cents)`;
-        await updateTask(taskId, { status: "failed", error: message, completed_at: new Date().toISOString() });
+        await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "failed", error: message, completed_at: new Date().toISOString() });
         await appendEvent(taskId, organizationId, "task.budget_exhausted", { remainingBudget });
         break;
       }
@@ -141,13 +143,16 @@ export async function processTask(taskId: string, organizationId: string, worker
           model,
           executionRegion: snapshot.execution_region,
           runtimeEnv,
+          workerId,
+          leaseGeneration,
         });
       }));
 
-      const spent = await recalculateTaskSpend(taskId);
+      await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+      const spent = await recalculateTaskSpend(taskId, organizationId, workerId, leaseGeneration);
       if (spent > Number(snapshot.max_cost_cents)) {
         const message = `Task budget exceeded: ${spent} > ${snapshot.max_cost_cents} cents`;
-        await updateTask(taskId, { status: "failed", error: message, completed_at: new Date().toISOString() });
+        await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "failed", error: message, completed_at: new Date().toISOString() });
         await appendEvent(taskId, organizationId, "task.budget_exceeded", { spent, maxCostCents: snapshot.max_cost_cents });
         break;
       }
@@ -168,52 +173,63 @@ export async function processTask(taskId: string, organizationId: string, worker
             .map((x) => ({ stepId: stepPlanId(x), result: x.result })),
           failureContext: { stepId: failed.stepId, agentId: agent?.id ?? failedStep?.agent_id ?? "unknown", error: reason },
         });
+        await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
         await replanTask({
           taskId,
           organizationId,
           plan: replacementPlan,
           reason,
           plannerModel: getDefaultModel("planner"),
+          workerId,
+          leaseGeneration,
         });
         continue;
       }
 
       if (failed) {
-        await updateTask(taskId, { status: "failed", completed_at: new Date().toISOString() });
+        await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "failed", completed_at: new Date().toISOString() });
         await appendEvent(taskId, organizationId, "task.failed", { reason: "Retries and bounded replans exhausted" });
         break;
       }
     }
 
     const tail = (await getTask(taskId, organizationId)) as PersistedTask;
-    if (tail.status === "running" && iterations > maxBatches) {
+    if (tail.status === "running") {
       const current = tail.steps.filter((step) => step.plan_revision === tail.plan_revision);
       const wakeAt = current
         .map((step) => (step.status === "queued" && step.run_after ? Date.parse(step.run_after) : NaN))
         .filter(Number.isFinite)
         .sort((a, b) => a - b)[0];
-      await updateTask(taskId, { status: "queued", run_after: wakeAt ? new Date(wakeAt).toISOString() : null });
+      await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "queued", run_after: wakeAt ? new Date(wakeAt).toISOString() : null });
       await appendEvent(taskId, organizationId, "task.yielded", { maxBatches, requeued: true });
     }
 
     return { claimed: true, task: await getTask(taskId, organizationId) };
   } catch (error) {
+    if (error instanceof TaskLeaseLostError || /task lease lost/i.test(error instanceof Error ? error.message : String(error))) {
+      const current = (await getTask(taskId, organizationId)) as PersistedTask;
+      if (current.status === "awaiting_approval") await requeueRunningStepsForApproval(taskId);
+      return { claimed: true, leaseLost: true, task: current };
+    }
     const message = error instanceof Error ? error.message : "Unknown worker error";
     const retryAt = new Date(
       Date.now() + Math.min(60_000, Math.max(5_000, Number(process.env.WORKER_ERROR_RETRY_MS ?? "30000"))),
     ).toISOString();
-    await appendEvent(taskId, organizationId, "task.worker_error", { message, retryAt });
-    await updateTask(taskId, {
-      status: "queued",
-      error: message,
-      run_after: retryAt,
-      completed_at: null,
-      lease_owner: null,
-      lease_until: null,
-    });
+    try {
+      await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, {
+        status: "queued",
+        error: message,
+        run_after: retryAt,
+        completed_at: null,
+      });
+      await appendEvent(taskId, organizationId, "task.worker_error", { message, retryAt });
+    } catch (ownershipError) {
+      if (!(ownershipError instanceof TaskLeaseLostError)) throw ownershipError;
+      return { claimed: true, leaseLost: true, task: await getTask(taskId, organizationId) };
+    }
     return { claimed: true, workerError: true, task: await getTask(taskId, organizationId) };
   } finally {
-    await db.from("tasks").update({ lease_owner: null, lease_until: null }).eq("id", taskId).eq("lease_owner", workerId);
+    await settleTaskLease(taskId, organizationId, workerId, leaseGeneration).catch(() => null);
   }
 }
 
@@ -229,10 +245,13 @@ async function runStep(input: {
   model: ModelAdapter;
   executionRegion?: string | null;
   runtimeEnv?: unknown;
+  workerId: string;
+  leaseGeneration: number;
 }): Promise<{ stepId: string; status: "verified" | "failed" | "awaiting_approval" | "queued"; usageCents: number }> {
-  const { taskId, organizationId, goal, maxCostCents, step, agent, userId, priorResults, model, executionRegion, runtimeEnv } = input;
+  const { taskId, organizationId, goal, maxCostCents, step, agent, userId, priorResults, model, executionRegion, runtimeEnv, workerId, leaseGeneration } = input;
   const attempt = step.attempt_count + 1;
-  await updateStep(step.id, { status: "running", attempt_count: attempt, started_at: new Date().toISOString(), error: null });
+  await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+  await updateStepOwned(step.id, taskId, organizationId, workerId, leaseGeneration, { status: "running", attempt_count: attempt, started_at: new Date().toISOString(), error: null });
   await appendEvent(taskId, organizationId, "step.started", { stepId: step.id, agentId: agent.id, attempt, kind: step.kind });
 
   let workspaceKnowledge: any[] = [];
@@ -403,7 +422,8 @@ async function runStep(input: {
         });
       }
 
-      await recordUsage(step.id, result.usageCents);
+      await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+      await recordUsage(step.id, result.usageCents, { taskId, organizationId, workerId, leaseGeneration });
       const metering = await recordEnterpriseUsage({
         organizationId,
         taskId,
@@ -454,7 +474,8 @@ async function runStep(input: {
 
         const toolResult = await invokeTool(agent, taskId, { toolId, input: args }, step.id);
         if (toolResult.approved === false) {
-          await updateStep(step.id, {
+          await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+          await updateStepOwned(step.id, taskId, organizationId, workerId, leaseGeneration, {
             status: "awaiting_approval",
             result: finalText || null,
             usage_cents: totalUsageCents,
@@ -475,7 +496,8 @@ async function runStep(input: {
             toolResult.approvalReason ?? "Approval required",
             toolResult.connectorRequestId ?? null,
           );
-          await updateTask(taskId, { status: "awaiting_approval" });
+          await requeueRunningStepsForApproval(taskId, step.id);
+          await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "awaiting_approval" });
           await appendEvent(taskId, organizationId, "approval.requested", { stepId: step.id, toolId, reason: toolResult.approvalReason });
           return { stepId: step.id, status: "awaiting_approval", usageCents: totalUsageCents };
         }
@@ -520,7 +542,8 @@ async function runStep(input: {
       storedResult = verification;
     }
 
-    await updateStep(step.id, {
+    await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+    await updateStepOwned(step.id, taskId, organizationId, workerId, leaseGeneration, {
       status: "verified",
       result: storedResult,
       checkpoint: {
@@ -546,7 +569,8 @@ async function runStep(input: {
       const baseDelay = Math.min(60_000, 2 ** (attempt - 1) * 1_000);
       const jitter = Math.floor(Math.random() * Math.min(750, Math.max(50, baseDelay * 0.15)));
       const delay = Math.min(60_000, baseDelay + jitter);
-      await updateStep(step.id, {
+      await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+      await updateStepOwned(step.id, taskId, organizationId, workerId, leaseGeneration, {
         status: "queued",
         error: message,
         run_after: new Date(Date.now() + delay).toISOString(),
@@ -563,8 +587,9 @@ async function runStep(input: {
       });
       return { stepId: step.id, status: "queued", usageCents: 0 };
     }
-    await updateStep(step.id, { status: "failed", error: message, finished_at: new Date().toISOString() });
-    await updateTask(taskId, { status: "running", error: `Step ${step.agent_id} failed: ${message}` });
+    await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+    await updateStepOwned(step.id, taskId, organizationId, workerId, leaseGeneration, { status: "failed", error: message, finished_at: new Date().toISOString() });
+    await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, { status: "running", error: `Step ${step.agent_id} failed: ${message}` });
     await appendEvent(taskId, organizationId, "step.failed", { stepId: step.id, error: message, attempt });
     return { stepId: step.id, status: "failed", usageCents: 0 };
   }
@@ -595,14 +620,40 @@ async function safeRecordExecutionMetric(input: Parameters<typeof recordExecutio
   }
 }
 
-async function recordUsage(stepId: string, usageCents: number) {
+async function recordUsage(
+  stepId: string,
+  usageCents: number,
+  ownership: { taskId: string; organizationId: string; workerId: string; leaseGeneration: number },
+) {
   const db = createAdminClient();
   const { data, error } = await db.from("task_steps").select("usage_cents_total").eq("id", stepId).single();
   if (error) throw new Error(error.message);
-  await updateStep(stepId, {
+  const patch = {
     usage_cents: usageCents,
     usage_cents_total: Number(data?.usage_cents_total ?? 0) + usageCents,
-  });
+  };
+  if (ownership) {
+    await updateStepOwned(stepId, ownership.taskId, ownership.organizationId, ownership.workerId, ownership.leaseGeneration, patch);
+  } else {
+    throw new Error("Task lease ownership is required for usage mutation");
+  }
+}
+
+async function requeueRunningStepsForApproval(taskId: string, exceptStepId?: string) {
+  const db = createAdminClient();
+  let query = db
+    .from("task_steps")
+    .update({
+      status: "queued",
+      run_after: new Date().toISOString(),
+      error: null,
+      finished_at: null,
+    })
+    .eq("task_id", taskId)
+    .eq("status", "running");
+  if (exceptStepId) query = query.neq("id", exceptStepId);
+  const { error } = await query;
+  if (error) throw new Error(error.message);
 }
 
 async function createApproval(taskId: string, organizationId: string, stepId: string, agentId: string, reason: string, connectorRequestId?: string | null) {
@@ -656,7 +707,7 @@ function parseVerificationResult(value: unknown): { passed: boolean; confidence:
   return { passed, confidence, findings, evidence };
 }
 
-async function finalizeTask(task: PersistedTask) {
+async function finalizeTask(task: PersistedTask, workerId: string, leaseGeneration: number) {
   const current = task.steps.filter((step) => step.plan_revision === task.plan_revision);
   const verifier = [...current].reverse().find((step) => step.kind === "verification" && step.status === "verified");
   if (!verifier) throw new Error("Cannot finalize without a verified verifier step");
@@ -668,7 +719,7 @@ async function finalizeTask(task: PersistedTask) {
     verification: verifier.result,
     planRevision: task.plan_revision,
   };
-  await updateTask(task.id, {
+  await updateTaskOwned(task.id, task.organization_id, workerId, leaseGeneration, {
     status: "verified",
     final_result: finalResult,
     completed_at: new Date().toISOString(),

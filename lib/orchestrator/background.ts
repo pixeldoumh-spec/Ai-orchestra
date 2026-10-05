@@ -72,6 +72,7 @@ export async function executeQueuedTask(input: {
     attempt: input.attempt,
   });
   const startedAt = run.startedAt;
+  let telemetryFinished = false;
   try {
     const { processTask } = await import("./worker");
     const result = await processTask(input.taskId, input.organizationId, workerId, input.runtimeEnv);
@@ -93,11 +94,13 @@ export async function executeQueuedTask(input: {
         taskStatus: task?.status ?? null,
       },
     });
+    telemetryFinished = true;
     if (result.workerError) {
       throw new Error("Background task execution returned a retryable worker failure");
     }
     return result;
   } catch (error) {
+    if (telemetryFinished) throw error;
     await finishBackgroundWorkerRun({
       id: run.id,
       status: "failed",
