@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
-type IconName = "home" | "runs" | "network" | "knowledge" | "marketplace" | "billing" | "workspace" | "user" | "plus";
+type IconName = "home" | "runs" | "network" | "knowledge" | "marketplace" | "billing" | "workspace" | "user" | "plus" | "more";
 
 function Icon({ name, size = 17 }: { name: IconName; size?: number }) {
   const common = {
@@ -28,6 +28,7 @@ function Icon({ name, size = 17 }: { name: IconName; size?: number }) {
     workspace: <><rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M9 7h2"/><path d="M13 7h2"/><path d="M9 11h2"/><path d="M13 11h2"/><path d="M9 15h2"/><path d="M13 15h2"/></>,
     user: <><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.2 3.1-5 7-5s6.2 1.8 7 5"/></>,
     plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,
+    more: <><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></>,
   };
 
   return <svg {...common}>{paths[name]}</svg>;
@@ -118,7 +119,7 @@ export function MobileWorkspaceNav() {
           aria-expanded={open}
           aria-controls="mobile-workspace-more"
         >
-          <Icon name="plus" />
+          <Icon name="more" />
           <span>More</span>
         </button>
       </nav>
