@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { MobileWorkspaceNav } from "@/components/MobileWorkspaceNav";
 
 type Task = any;
 type Agent = any;
@@ -418,6 +419,7 @@ export default function Home() {
           </div>
         </main>
       </section>
+      <MobileWorkspaceNav />
     </div>
   );
 }
