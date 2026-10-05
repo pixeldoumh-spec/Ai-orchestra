@@ -2,10 +2,26 @@ import { NextResponse } from "next/server";
 import { createTaskSchema } from "@/lib/api";
 import { getOrganizationForUser, requireUser } from "@/lib/auth";
 import { normalizeIdempotencyKey } from "@/lib/core/idempotency";
-import { createTask } from "@/lib/orchestrator/repository";
+import { createTask, listTasks } from "@/lib/orchestrator/repository";
 import { ensureDefaultAgents, listAgents } from "@/lib/orchestrator/registry";
 import { planWorkflow } from "@/lib/orchestrator/planner";
 import { hasEnterprisePermission } from "@/lib/enterprise/rbac";
+
+
+export async function GET(request: Request) {
+  try {
+    const { db, user } = await requireUser();
+    const url = new URL(request.url);
+    const org = await getOrganizationForUser(db, user.id, url.searchParams.get("organizationId"));
+    if (!org) return NextResponse.json({ error: "Organization not found" }, { status: 404 });
+    if (!hasEnterprisePermission(org.role, "enterprise.read")) return NextResponse.json({ error: "Task history access denied" }, { status: 403 });
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "50")));
+    return NextResponse.json({ tasks: await listTasks(org.id, limit), organization: org });
+  } catch (error) {
+    const status = error instanceof Response ? error.status : 500;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status });
+  }
+}
 
 export async function POST(request: Request) {
   try {
