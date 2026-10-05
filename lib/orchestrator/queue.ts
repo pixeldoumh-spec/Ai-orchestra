@@ -5,11 +5,15 @@ type QueueBinding = {
 };
 
 function getTaskQueue(runtimeEnv?: unknown): QueueBinding {
+  const runtimeSupplied = runtimeEnv !== undefined && runtimeEnv !== null;
   if (runtimeEnv && typeof runtimeEnv === "object") {
     const queue = (runtimeEnv as { TASK_QUEUE?: unknown }).TASK_QUEUE;
     if (queue && typeof queue === "object" && typeof (queue as { send?: unknown }).send === "function") {
       return queue as QueueBinding;
     }
+  }
+  if (runtimeSupplied) {
+    throw new Error("TASK_QUEUE binding is missing from the supplied runtime environment");
   }
   const context = getCloudflareContext();
   const queue = (context.env as { TASK_QUEUE?: unknown }).TASK_QUEUE;
