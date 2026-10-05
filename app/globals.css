@@ -336,3 +336,151 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .emptyState.compact{padding-top:18px}
 @media(max-width:900px){.runsLayout,.connectorLayout{grid-template-columns:1fr}.connectorMetrics{grid-template-columns:1fr 1fr}}
 @media(max-width:720px){.runsLayout,.connectorLayout{gap:10px}.connectorForm{grid-template-columns:1fr}.connectorForm button{width:100%}}
+
+
+/* --- Mobile workspace navigation --- */
+.mobileWorkspaceNav,.mobileMoreSheet,.mobileNavBackdrop{display:none}
+
+@media(max-width:720px){
+  .orchestraCanvas{padding-bottom:88px}
+  .orchestraSecondaryApp .secondaryContent{padding-bottom:40px}
+
+  .mobileWorkspaceNav{
+    position:fixed;
+    z-index:100;
+    left:0;
+    right:0;
+    bottom:0;
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    min-height:64px;
+    padding:7px 8px max(7px,env(safe-area-inset-bottom));
+    border-top:1px solid var(--border);
+    background:rgba(255,255,255,.97);
+    box-shadow:0 -8px 24px rgba(24,24,20,.07);
+    backdrop-filter:blur(12px);
+  }
+  .mobileNavItem{
+    min-width:0;
+    border:0;
+    background:transparent;
+    color:#858881;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:4px;
+    border-radius:11px;
+    text-decoration:none;
+    font-size:9px;
+    font-weight:650;
+    padding:5px 3px;
+  }
+  .mobileNavItem svg{flex:0 0 auto}
+  .mobileNavItem.active{
+    color:#4f7957;
+    background:#edf6ee;
+  }
+  .mobileNavItem:hover{background:#f2f2ef;color:var(--text)}
+
+  .mobileNavBackdrop{
+    position:fixed;
+    z-index:109;
+    inset:0;
+    display:block;
+    border:0;
+    padding:0;
+    background:rgba(25,27,24,.18);
+  }
+  .mobileMoreSheet{
+    position:fixed;
+    z-index:110;
+    left:10px;
+    right:10px;
+    bottom:74px;
+    display:block;
+    padding:13px;
+    border:1px solid var(--border-strong);
+    border-radius:18px;
+    background:#fff;
+    box-shadow:0 18px 48px rgba(20,22,19,.16);
+  }
+  .mobileMoreHeader{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:10px;
+    padding:2px 3px 11px;
+    border-bottom:1px solid var(--border);
+  }
+  .mobileMoreHeader strong,.mobileMoreHeader span{display:block}
+  .mobileMoreHeader strong{font-size:12px}
+  .mobileMoreHeader span{margin-top:3px;color:var(--muted);font-size:9px}
+  .mobileMoreClose{
+    width:28px;
+    height:28px;
+    padding:0;
+    border:1px solid var(--border);
+    border-radius:50%;
+    background:#fafaf8;
+    color:#6f726c;
+    font-size:19px;
+    line-height:1;
+  }
+  .mobileMoreGrid{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:7px;
+    padding:11px 0;
+  }
+  .mobileMoreItem{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-width:0;
+    padding:10px;
+    border:1px solid var(--border);
+    border-radius:11px;
+    color:#656861;
+    background:#fbfbf9;
+    text-decoration:none;
+    font-size:10px;
+    font-weight:650;
+  }
+  .mobileMoreItem.active{
+    border-color:var(--accent-border);
+    background:var(--accent-soft);
+    color:#4f7957;
+  }
+  .mobileMoreIcon{
+    width:30px;
+    height:30px;
+    flex:0 0 30px;
+    display:grid;
+    place-items:center;
+    border:1px solid var(--border);
+    border-radius:9px;
+    background:#fff;
+    color:#70736d;
+  }
+  .mobileQuickTask{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    padding:10px 0 2px;
+    border-top:1px solid var(--border);
+    color:var(--text);
+    text-decoration:none;
+  }
+  .mobileQuickTask strong,.mobileQuickTask small{display:block}
+  .mobileQuickTask strong{font-size:10.5px}
+  .mobileQuickTask small{margin-top:3px;color:var(--muted);font-size:8.5px}
+
+  .mobileQuickTask .mobileMoreIcon{color:#4f7957;background:var(--accent-soft);border-color:var(--accent-border)}
+
+  .runsLayout,.connectorLayout{padding-bottom:2px}
+}
+
+@media(min-width:721px){
+  .mobileWorkspaceNav,.mobileMoreSheet,.mobileNavBackdrop{display:none!important}
+}
