@@ -99,6 +99,7 @@ export default function Home() {
   const [workspaceName, setWorkspaceName] = useState("My Workspace");
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [showCapabilities, setShowCapabilities] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
 
   async function loadConnectors() {
     const r = await fetch("/api/connectors");
@@ -158,6 +159,53 @@ export default function Home() {
 
     return () => source.close();
   }, [task?.id]);
+
+  function startVoiceCapture() {
+    if (voiceListening) {
+      setVoiceListening(false);
+      return;
+    }
+
+    const SpeechRecognitionCtor = (
+      window as typeof window & {
+        SpeechRecognition?: new () => any;
+        webkitSpeechRecognition?: new () => any;
+      }
+    ).SpeechRecognition
+      ?? (
+        window as typeof window & {
+          webkitSpeechRecognition?: new () => any;
+        }
+      ).webkitSpeechRecognition;
+
+    if (!SpeechRecognitionCtor) {
+      setMessage("Voice input is not supported by this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = navigator.language || "en-IN";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.onstart = () => setVoiceListening(true);
+    recognition.onend = () => setVoiceListening(false);
+    recognition.onerror = () => {
+      setVoiceListening(false);
+      setMessage("Voice input stopped. You can continue typing your goal.");
+    };
+    recognition.onresult = (event: any) => {
+      const transcript = String(event?.results?.[0]?.[0]?.transcript ?? "").trim();
+      if (transcript) setGoal((current) => (current.trim() ? current.trimEnd() + " " : "") + transcript);
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setVoiceListening(false);
+      setMessage("Voice input could not start.");
+    }
+  }
 
   async function createWorkspace() {
     setMessage("Creating workspace…");
@@ -349,8 +397,41 @@ export default function Home() {
                 <span>Create a report</span><small>Collect, analyze, write, verify</small>
               </button>
               <button type="button" onClick={() => setGoal("Review our workspace knowledge and identify the most important changes this week.")}>
-                <span>Use workspace knowledge</span><small>Memory and documents</small>
+                <span>Use workspace knowledge</span><small>Documents and workspace memory</small>
               </button>
+            </section>
+
+            <section className="aoMoreWays" aria-label="More ways to start">
+              <div className="aoMoreWaysHead">
+                <strong>More ways to start</strong>
+                <span>Powered by Orchestra</span>
+              </div>
+              <div className="aoMoreWaysGrid">
+                <button className="aoWayButton" type="button" onClick={() => setGoal("Write production-ready code for: ")}>
+                  <span className="aoWayIcon"><Icon name="workflow" size={14} /></span>
+                  <span>Write code</span>
+                </button>
+                <button className="aoWayButton" type="button" onClick={() => setGoal("Summarize these documents and extract the key decisions: ")}>
+                  <span className="aoWayIcon"><Icon name="knowledge" size={14} /></span>
+                  <span>Summarize docs</span>
+                </button>
+                <button className="aoWayButton" type="button" onClick={() => setGoal("Analyze this dataset and surface the most important patterns: ")}>
+                  <span className="aoWayIcon"><Icon name="runs" size={14} /></span>
+                  <span>Analyze data</span>
+                </button>
+                <button className="aoWayButton" type="button" onClick={() => setGoal("Browse the web and gather reliable evidence about: ")}>
+                  <span className="aoWayIcon"><Icon name="network" size={14} /></span>
+                  <span>Browse the web</span>
+                </button>
+                <button className="aoWayButton" type="button" onClick={() => setGoal("Brainstorm a set of strong options for: ")}>
+                  <span className="aoWayIcon"><Icon name="spark" size={14} /></span>
+                  <span>Brainstorm ideas</span>
+                </button>
+                <button className="aoWayButton" type="button" onClick={() => { setShowCapabilities(true); document.getElementById("goal-input")?.focus(); }}>
+                  <span className="aoWayIcon"><Icon name="agents" size={14} /></span>
+                  <span>See how Orchestra works</span>
+                </button>
+              </div>
             </section>
 
             <section className="chatComposerSection">
@@ -380,10 +461,21 @@ export default function Home() {
                     <Icon name="plus" size={17} />
                   </button>
 
-                  <div className="chatComposerMode">
+                  <div className="chatComposerMode" aria-label="Orchestration mode">
                     <span className="chatComposerModeDot" />
                     <span>Auto orchestration</span>
+                    <Icon name="chevron" size={11} />
                   </div>
+
+                  <button
+                    className={"chatVoiceButton " + (voiceListening ? "isListening" : "")}
+                    type="button"
+                    onClick={startVoiceCapture}
+                    aria-label={voiceListening ? "Stop voice input" : "Start voice input"}
+                    title={voiceListening ? "Stop voice input" : "Voice input"}
+                  >
+                    <span>{voiceListening ? "■" : "◉"}</span>
+                  </button>
 
                   <button
                     className="chatSendButton"
