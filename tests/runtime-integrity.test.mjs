@@ -6,6 +6,8 @@ import {
   ownsLease,
   safeWorkerExitStatus,
   stepNeedsRecovery,
+  isDispatchEligible,
+  isStaleLeaseTakeoverEligible,
 } from "../.tmp-core/runtime.js";
 
 test("V6.6.1 terminal task state is immutable", () => {
@@ -45,4 +47,27 @@ test("V6.6.1 worker exit policy never preserves running without ownership", () =
   assert.equal(safeWorkerExitStatus({ status: "failed" }), "terminal");
   assert.equal(safeWorkerExitStatus({ status: "cancelled" }), "terminal");
   assert.equal(safeWorkerExitStatus({ status: "awaiting_approval" }), "terminal");
+});
+
+
+test("Queue integrity: stale heartbeat cannot override an active lease", () => {
+  const now = Date.parse("2026-10-06T07:30:00.000Z");
+  const activeLease = {
+    status: "running",
+    lease_until: "2026-10-06T07:40:00.000Z",
+    last_heartbeat_at: "2026-10-06T07:20:00.000Z",
+  };
+  assert.equal(isStaleLeaseTakeoverEligible(activeLease, now, 300_000), false);
+  assert.equal(isDispatchEligible(activeLease, now, 120_000, 45_000), false);
+});
+
+test("Queue integrity: expired lease is the takeover boundary", () => {
+  const now = Date.parse("2026-10-06T07:30:00.000Z");
+  const expiredLease = {
+    status: "running",
+    lease_until: "2026-10-06T07:29:59.000Z",
+    last_heartbeat_at: "2026-10-06T07:29:59.500Z",
+  };
+  assert.equal(isStaleLeaseTakeoverEligible(expiredLease, now, 300_000), true);
+  assert.equal(isDispatchEligible(expiredLease, now, 120_000, 45_000), true);
 });
