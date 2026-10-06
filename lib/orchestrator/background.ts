@@ -213,7 +213,7 @@ export async function executeQueuedTask(input: {
         .eq("organization_id", input.organizationId)
         .maybeSingle();
 
-      deliveryStatus = result.workerError ? "failed" : result.claimed ? "completed" : "skipped";
+      deliveryStatus = result.workerError ? "failed" : result.deferred ? "skipped" : result.claimed ? "completed" : "skipped";
       await finishBackgroundWorkerRun({
         id: run.id,
         status: deliveryStatus,
@@ -222,6 +222,7 @@ export async function executeQueuedTask(input: {
           dispatchId: input.dispatchId,
           queueMessageId: input.queueMessageId,
           claimed: result.claimed,
+          deferred: Boolean(result.deferred),
           duplicateDelivery: false,
           taskStatus: task?.status ?? null,
         },
