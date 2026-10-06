@@ -70,14 +70,14 @@ test("V6.6.1 active heartbeat never gets forcibly reclaimed",()=>{
 import { getModelCatalog, resetModelCircuits, recordModelFailure, selectModel } from "../.tmp-core/model-routing.js";
 
 test("V6.7 dynamic router prefers the strongest permitted model for planner work", () => {
-  const decision = selectModel({ role: "planner", allowPaidModels: true, estimatedInputTokens: 30_000 });
+  const decision = selectModel({ role: "planner", policy: { allowPaidModels: true }, estimatedInputTokens: 30_000 });
   assert.equal(decision.model, "@cf/zai-org/glm-5.3-flash");
   assert.equal(decision.candidates.length <= 5, true);
   assert.match(decision.reason, /role=planner/);
 });
 
 test("V6.7 dynamic router protects free mode from paid-model selection", () => {
-  const decision = selectModel({ role: "verifier", allowPaidModels: false, estimatedInputTokens: 20_000 });
+  const decision = selectModel({ role: "verifier", policy: { allowPaidModels: false }, estimatedInputTokens: 20_000 });
   assert.equal(decision.model, "@cf/qwen/qwen3.8-27b");
   assert.equal(decision.candidates.some((candidate) => candidate.paid), false);
 });
@@ -85,7 +85,7 @@ test("V6.7 dynamic router protects free mode from paid-model selection", () => {
 test("V6.7 coding route selects Kimi when paid models are explicitly allowed", () => {
   const decision = selectModel({
     role: "agent",
-    allowPaidModels: true,
+    policy: { allowPaidModels: true },
     requiredCapabilities: ["coding"],
     goal: "Refactor the TypeScript repository and debug the API implementation",
   });
@@ -96,7 +96,7 @@ test("V6.7 coding route selects Kimi when paid models are explicitly allowed", (
 test("V6.7 long-context route requires a model with enough context", () => {
   const decision = selectModel({
     role: "analysis",
-    allowPaidModels: true,
+    policy: { allowPaidModels: true },
     estimatedInputTokens: 200_000,
   });
   assert.equal(decision.model, "@cf/zai-org/glm-5.3-flash");
@@ -109,8 +109,7 @@ test("V6.7 allowlist and model circuit state constrain routing", () => {
   recordModelFailure("@cf/qwen/qwen3.8-27b", "capacity", { circuitFailureThreshold: 1, circuitCooldownMs: 60_000 });
   const decision = selectModel({
     role: "writer",
-    allowPaidModels: false,
-    allowlist: ["@cf/qwen/qwen3.8-27b", "@cf/openai/gpt-oss-20b"],
+    policy: { allowPaidModels: false, allowlist: ["@cf/qwen/qwen3.8-27b", "@cf/openai/gpt-oss-20b"] },
   });
   assert.equal(decision.model, "@cf/openai/gpt-oss-20b");
   resetModelCircuits();
