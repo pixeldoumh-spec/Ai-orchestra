@@ -124,8 +124,11 @@ function hydrateRuntimeEnvironment(runtimeEnv?: unknown) {
 function buildHandoffPacket(step: PersistedStep, agent?: AgentDefinition | null) {
   const specialization = agent ? getAgentSpecialization(agent, step.kind) : null;
   const raw = step.result;
-  const evidencePacketIds = raw && typeof raw === "object" && !Array.isArray(raw) && Array.isArray((raw as Record<string, unknown>).evidencePacketIds)
-    ? (raw as Record<string, unknown>).evidencePacketIds.filter((id): id is string => typeof id === "string").slice(0, 32)
+  const rawRecord = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : null;
+  const evidencePacketIds = rawRecord && Array.isArray(rawRecord.evidencePacketIds)
+    ? (rawRecord.evidencePacketIds as unknown[]).filter((id): id is string => typeof id === "string").slice(0, 32)
     : [];
   const result = raw && typeof raw === "object" && !Array.isArray(raw) && "content" in (raw as Record<string, unknown>)
     ? (raw as Record<string, unknown>).content
