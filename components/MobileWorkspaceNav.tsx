@@ -39,6 +39,13 @@ const links = [
   {href:"/enterprise",label:"Workspace settings",icon:"workspace" as IconName},
 ];
 
+const bottomLinks = [
+  {href:"/",label:"Home",icon:"home" as IconName},
+  {href:"/agents",label:"Agents",icon:"agents" as IconName},
+  {href:"/workflow",label:"Workflows",icon:"workflow" as IconName},
+  {href:"/knowledge",label:"Library",icon:"knowledge" as IconName},
+];
+
 export function MobileWorkspaceNav(){
   const pathname=usePathname();
   const [open,setOpen]=useState(false);
@@ -51,6 +58,23 @@ export function MobileWorkspaceNav(){
 
   return <>
     <button className="mobileNavTrigger" type="button" onClick={()=>setOpen(true)} aria-label="Open navigation"><Icon name="panel" size={20}/></button>
+    <nav className="mobileBottomBar" aria-label="Mobile primary navigation">
+      {bottomLinks.map(link => (
+        <a
+          key={link.href}
+          href={link.href}
+          className={"mobileBottomItem "+(pathname===link.href?"active":"")}
+          aria-current={pathname===link.href ? "page" : undefined}
+        >
+          <Icon name={link.icon} size={17}/>
+          <span>{link.label}</span>
+        </a>
+      ))}
+      <button className="mobileBottomItem mobileBottomItemMore" type="button" onClick={()=>setOpen(true)}>
+        <Icon name="more" size={17}/>
+        <span>More</span>
+      </button>
+    </nav>
     {open&&<button className="mobileNavBackdrop" type="button" aria-label="Close navigation" onClick={()=>setOpen(false)}/>}
     {open&&<aside className="mobileSideSheet" aria-label="Workspace navigation">
       <div className="mobileSheetHead">
