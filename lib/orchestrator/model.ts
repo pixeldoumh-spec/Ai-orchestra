@@ -6,7 +6,15 @@ import type {
   ModelFunctionCall,
   ModelResult,
   ModelTool,
+  ModelRouteRole,
 } from "./types";
+import {
+  getModelCatalog,
+  recordModelFailure,
+  recordModelSuccess,
+  selectModel,
+  type ModelCapability,
+} from "@/lib/core/model-routing";
 
 type Pricing = {
   inputUsdPerMillion: number;
@@ -361,6 +369,112 @@ function normalizeProvider(value: string | undefined | null): string {
   return (value ?? "").trim().toLowerCase();
 }
 
+function truthyEnv(name: string, fallback = false): boolean {
+  const value = (process.env[name] ?? "").trim().toLowerCase();
+  if (!value) return fallback;
+  return !["false", "0", "no", "off"].includes(value);
+}
+
+function csvEnv(name: string): string[] {
+  return [...new Set((process.env[name] ?? "").split(",").map((value) => value.trim()).filter(Boolean))];
+}
+
+function routingPolicy() {
+  return {
+    allowPaidModels: truthyEnv("AI_ROUTING_ALLOW_PAID_MODELS", false),
+    allowlist: csvEnv("AI_ROUTING_MODEL_ALLOWLIST"),
+    preferred: [
+      process.env.AI_PLANNER_MODEL,
+      process.env.AI_VERIFIER_MODEL,
+      process.env.WORKERS_AI_MODEL,
+    ].filter((value): value is string => Boolean(value?.trim())),
+    maxCandidates: Number(process.env.AI_ROUTING_MAX_CANDIDATES ?? "5"),
+    circuitFailureThreshold: Number(process.env.AI_ROUTING_CIRCUIT_FAILURES ?? "2"),
+    circuitCooldownMs: Number(process.env.AI_ROUTING_CIRCUIT_COOLDOWN_SECONDS ?? "30") * 1000,
+  };
+}
+
+function modelRole(input: ModelCompleteInput): ModelRouteRole {
+  return input.routingRole ?? "agent";
+}
+
+function inferredRoutingCapabilities(input: ModelCompleteInput): ModelCapability[] {
+  const context = input.routingContext;
+  const capabilities = new Set<ModelCapability>();
+
+  if ((context?.toolCount ?? input.tools?.length ?? 0) > 0) capabilities.add("tools");
+  const text = [context?.goal, context?.objective, ...(context?.agentCapabilities ?? [])].filter(Boolean).join(" ");
+  if (/(image|vision|visual|screenshot|photo|diagram|multimodal)/i.test(text)) capabilities.add("vision");
+  if (/(code|coding|program|programming|repository|repo|debug|typescript|javascript|python|sql|api implementation|refactor)/i.test(text)) {
+    capabilities.add("coding");
+  }
+  if ((context?.estimatedInputTokens ?? 0) > 80_000 || text.length > 320_000) capabilities.add("long_context");
+  if (["planner", "analysis", "verifier"].includes(modelRole(input))) capabilities.add("reasoning");
+  return [...capabilities];
+}
+
+export function selectModelForInput(input: {
+  role: ModelRouteRole;
+  goal?: string;
+  objective?: string;
+  agentCapabilities?: string[];
+  toolCount?: number;
+  estimatedInputTokens?: number;
+  reasoningEffort?: ModelCompleteInput["reasoningEffort"];
+  explicitModel?: string | null;
+}) {
+  const policy = routingPolicy();
+  const mode = (process.env.AI_ROUTING_MODE ?? "dynamic").trim().toLowerCase();
+  const catalog = getModelCatalog();
+  const allowPaid = policy.allowPaidModels;
+  const explicit = input.explicitModel?.trim() || null;
+
+  if (mode === "pinned" && explicit?.startsWith("@cf/")) {
+    const profile = catalog.find((item) => item.id === explicit);
+    if (profile && (allowPaid || !profile.paid) && !policy.allowlist?.length || (profile && policy.allowlist?.includes(explicit))) {
+      return {
+        model: explicit,
+        role: input.role,
+        candidates: [{ model: explicit, score: 10_000, capabilities: profile.capabilities, paid: profile.paid }],
+        reason: `role=${input.role};pinned`,
+      };
+    }
+  }
+
+  return selectModel({
+    ...input,
+    explicitModel: explicit,
+    policy,
+  });
+}
+
+function dynamicFallbackCandidates(input: ModelCompleteInput, primaryModel: string | null): Array<{ provider: string; model: string }> {
+  const role = modelRole(input);
+  const selection = selectModelForInput({
+    role,
+    goal: input.routingContext?.goal,
+    objective: input.routingContext?.objective,
+    agentCapabilities: input.routingContext?.agentCapabilities,
+    toolCount: input.routingContext?.toolCount ?? input.tools?.length,
+    estimatedInputTokens: input.routingContext?.estimatedInputTokens,
+    reasoningEffort: input.reasoningEffort,
+    explicitModel: null,
+  });
+  const max = Math.min(3, Math.max(0, Number(process.env.AI_ROUTING_MAX_FALLBACKS ?? "2")));
+  const configured = (process.env.AI_FALLBACK_MODEL ?? "").trim();
+  const output: Array<{ provider: string; model: string }> = [];
+  if (configured && configured.startsWith("@cf/") && configured !== primaryModel) {
+    output.push({ provider: normalizeProvider(process.env.AI_FALLBACK_PROVIDER) || "workers_ai", model: configured });
+  }
+  for (const candidate of selection.candidates) {
+    if (output.length >= max) break;
+    if (candidate.model === primaryModel || output.some((entry) => entry.model === candidate.model)) continue;
+    output.push({ provider: "workers_ai", model: candidate.model });
+  }
+  return output;
+}
+
+
 function isFallbackEligible(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return /timeout|timed out|capacity|busy|429|rate limit|quota|allocation|provider error|temporarily unavailable|forbidden|authentication failed|paid plan|required|structured model output|could not be parsed|structured output|contract/i.test(message);
@@ -374,13 +488,17 @@ function fallbackReason(error: unknown): string {
 class FallbackModelAdapter implements ModelAdapter {
   readonly provider?: string;
   private readonly primary: ModelAdapter;
-  private readonly fallback: ModelAdapter;
-  private readonly fallbackModel: string | null;
+  private readonly configuredFallbacks: Array<{ provider: string; model: string }>;
+  private readonly runtimeEnv?: unknown;
 
-  constructor(primary: ModelAdapter, fallback: ModelAdapter, fallbackModel: string | null) {
+  constructor(
+    primary: ModelAdapter,
+    configuredFallbacks: Array<{ provider: string; model: string }>,
+    runtimeEnv?: unknown,
+  ) {
     this.primary = primary;
-    this.fallback = fallback;
-    this.fallbackModel = fallbackModel;
+    this.configuredFallbacks = configuredFallbacks;
+    this.runtimeEnv = runtimeEnv;
     this.provider = primary.provider;
   }
 
@@ -389,25 +507,51 @@ class FallbackModelAdapter implements ModelAdapter {
   }
 
   async complete(input: ModelCompleteInput): Promise<ModelResult> {
+    const primaryModel = input.model ?? null;
     try {
-      return await this.primary.complete(input);
+      const result = await this.primary.complete(input);
+      if (primaryModel) recordModelSuccess(primaryModel);
+      return result;
     } catch (error) {
-      if (!this.fallbackModel || !isFallbackEligible(error)) throw error;
-      const primaryModel = input.model ?? null;
-      if (primaryModel && primaryModel === this.fallbackModel) throw error;
+      if (!isFallbackEligible(error)) throw error;
+      if (primaryModel) {
+        recordModelFailure(primaryModel, fallbackReason(error), {
+          circuitFailureThreshold: Number(process.env.AI_ROUTING_CIRCUIT_FAILURES ?? "2"),
+          circuitCooldownMs: Number(process.env.AI_ROUTING_CIRCUIT_COOLDOWN_SECONDS ?? "30") * 1000,
+        });
+      }
 
-      const result = await this.fallback.complete({
-        ...input,
-        model: this.fallbackModel,
-      });
-      return {
-        ...result,
-        fallbackFrom: {
-          provider: this.primary.provider ?? "unknown",
-          model: primaryModel,
-          reason: fallbackReason(error),
-        },
-      };
+      const dynamic = dynamicFallbackCandidates(input, primaryModel);
+      const merged: Array<{ provider: string; model: string }> = [];
+      for (const candidate of [...this.configuredFallbacks, ...dynamic]) {
+        if (candidate.model === primaryModel || merged.some((entry) => entry.model === candidate.model && entry.provider === candidate.provider)) continue;
+        merged.push(candidate);
+        if (merged.length >= Math.min(3, Math.max(1, Number(process.env.AI_ROUTING_MAX_FALLBACKS ?? "2")))) break;
+      }
+
+      let lastError: unknown = error;
+      for (const candidate of merged) {
+        try {
+          const fallback = createProviderAdapter(candidate.provider, this.runtimeEnv);
+          const result = await fallback.complete({ ...input, model: candidate.model });
+          recordModelSuccess(candidate.model);
+          return {
+            ...result,
+            fallbackFrom: {
+              provider: this.primary.provider ?? "unknown",
+              model: primaryModel,
+              reason: fallbackReason(lastError),
+            },
+          };
+        } catch (fallbackError) {
+          recordModelFailure(candidate.model, fallbackReason(fallbackError), {
+            circuitFailureThreshold: Number(process.env.AI_ROUTING_CIRCUIT_FAILURES ?? "2"),
+            circuitCooldownMs: Number(process.env.AI_ROUTING_CIRCUIT_COOLDOWN_SECONDS ?? "30") * 1000,
+          });
+          lastError = fallbackError;
+        }
+      }
+      throw lastError;
     }
   }
 }
@@ -425,29 +569,48 @@ export function getModelAdapter(runtimeEnv?: unknown): ModelAdapter {
   const provider = normalizeProvider(process.env.AI_MODEL_PROVIDER) || "mock";
   const primary = createProviderAdapter(provider, runtimeEnv);
 
-  const fallbackEnabled = (process.env.AI_FALLBACK_ENABLED ?? "true").trim().toLowerCase() !== "false";
+  const fallbackEnabled = truthyEnv("AI_FALLBACK_ENABLED", true);
+  if (!fallbackEnabled) return primary;
+
   const fallbackProvider = normalizeProvider(process.env.AI_FALLBACK_PROVIDER);
-  const fallbackModel = process.env.AI_FALLBACK_MODEL?.trim() || null;
-  if (!fallbackEnabled || !fallbackProvider || !fallbackModel || fallbackProvider === provider && fallbackModel === (process.env.WORKERS_AI_MODEL?.trim() || null)) {
+  const fallbackModel = process.env.AI_FALLBACK_MODEL?.trim() || "";
+  const configuredFallbacks = fallbackProvider && fallbackModel
+    ? [{ provider: fallbackProvider, model: fallbackModel }]
+    : [];
+
+  if (configuredFallbacks.length === 0 && provider !== "workers_ai" && provider !== "cloudflare_workers_ai" && provider !== "cloudflare-ai") {
     return primary;
   }
 
-  try {
-    const fallback = createProviderAdapter(fallbackProvider, runtimeEnv);
-    return new FallbackModelAdapter(primary, fallback, fallbackModel);
-  } catch {
-    return primary;
-  }
+  return new FallbackModelAdapter(primary, configuredFallbacks, runtimeEnv);
 }
 
-export function getDefaultModel(role: "planner" | "agent" | "verifier"): string {
+export function getDefaultModel(
+  role: "planner" | "agent" | "verifier",
+  context?: {
+    goal?: string;
+    objective?: string;
+    agentCapabilities?: string[];
+    toolCount?: number;
+    estimatedInputTokens?: number;
+    reasoningEffort?: ModelCompleteInput["reasoningEffort"];
+    explicitModel?: string | null;
+  },
+): string {
   const provider = (process.env.AI_MODEL_PROVIDER ?? "mock").trim().toLowerCase();
   if (provider === "cloudflare_workers_ai" || provider === "workers_ai" || provider === "cloudflare-ai") {
+    const routeRole: ModelRouteRole = role === "planner" ? "planner" : role === "verifier" ? "verifier" : "agent";
     const configured = role === "planner"
       ? process.env.AI_PLANNER_MODEL
       : role === "verifier"
         ? process.env.AI_VERIFIER_MODEL
         : process.env.WORKERS_AI_MODEL ?? process.env.OPENAI_MODEL;
+    const decision = selectModelForInput({
+      role: routeRole,
+      ...context,
+      explicitModel: context?.explicitModel ?? null,
+    });
+    if (decision.model) return decision.model;
     return configured?.startsWith("@cf/") ? configured : "@cf/openai/gpt-oss-20b";
   }
 
