@@ -1,7 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { appendEvent, recoverStaleTaskLease } from "./repository";
 import { enqueueTask, newDispatchId } from "./queue";
-import { startBackgroundWorkerRun, finishBackgroundWorkerRun } from "@/lib/ops/repository";
+import {
+  claimBackgroundDeadLetterReplay,
+  claimBackgroundDelivery,
+  finishBackgroundDelivery,
+  finishBackgroundWorkerRun,
+  markBackgroundDeadLetterReplayed,
+  startBackgroundWorkerRun,
+  sweepRuntimeIntegrity,
+} from "@/lib/ops/repository";
 import { isDispatchEligible, isStaleLeaseTakeoverEligible } from "@/lib/core/runtime";
 
 function hydrateRuntimeEnvironment(runtimeEnv?: unknown) {
@@ -121,54 +129,132 @@ export async function executeQueuedTask(input: {
 }) {
   hydrateRuntimeEnvironment(input.runtimeEnv);
   const workerId = `queue_${input.queueMessageId}`;
-  const run = await startBackgroundWorkerRun({
-    organizationId: input.organizationId,
-    taskId: input.taskId,
+  const delivery = await claimBackgroundDelivery({
     dispatchId: input.dispatchId,
-    workerId,
-    trigger: "queue",
+    queueMessageId: input.queueMessageId,
+    taskId: input.taskId,
+    organizationId: input.organizationId,
     attempt: input.attempt,
+    workerId,
   });
-  const startedAt = run.startedAt;
-  let telemetryFinished = false;
-  try {
-    const { processTask } = await import("./worker");
-    const result = await processTask(input.taskId, input.organizationId, workerId, input.runtimeEnv);
-    const db = createAdminClient();
-    const { data: task } = await db
-      .from("tasks")
-      .select("status")
-      .eq("id", input.taskId)
-      .eq("organization_id", input.organizationId)
-      .maybeSingle();
-    await finishBackgroundWorkerRun({
-      id: run.id,
-      status: result.workerError ? "failed" : result.claimed ? "completed" : "skipped",
-      startedAt,
-      metadata: {
-        dispatchId: input.dispatchId,
-        queueMessageId: input.queueMessageId,
-        claimed: result.claimed,
-        taskStatus: task?.status ?? null,
-      },
-    });
-    telemetryFinished = true;
-    if (result.workerError) {
-      throw new Error("Background task execution returned a retryable worker failure");
-    }
-    return result;
-  } catch (error) {
-    if (telemetryFinished) throw error;
-    await finishBackgroundWorkerRun({
-      id: run.id,
-      status: "failed",
-      startedAt,
-      errorClass: "runtime",
-      metadata: {
-        dispatchId: input.dispatchId,
-        queueMessageId: input.queueMessageId,
-      },
+
+  if (!delivery?.claimed) {
+    await appendEvent(input.taskId, input.organizationId, "task.delivery_duplicate_suppressed", {
+      dispatchId: input.dispatchId,
+      queueMessageId: input.queueMessageId,
+      attempt: input.attempt,
+      reason: delivery?.reason ?? "duplicate_delivery",
     }).catch(() => {});
-    throw error;
+    return {
+      claimed: false,
+      duplicateDelivery: true,
+      reason: delivery?.reason ?? "duplicate_delivery",
+    };
   }
+
+  let run: Awaited<ReturnType<typeof startBackgroundWorkerRun>> | null = null;
+  let deliveryStatus: "completed" | "failed" | "skipped" = "failed";
+  try {
+    run = await startBackgroundWorkerRun({
+      organizationId: input.organizationId,
+      taskId: input.taskId,
+      dispatchId: input.dispatchId,
+      workerId,
+      trigger: "queue",
+      attempt: input.attempt,
+    });
+    const startedAt = run.startedAt;
+    try {
+      const { processTask } = await import("./worker");
+      const result = await processTask(input.taskId, input.organizationId, workerId, input.runtimeEnv);
+      const db = createAdminClient();
+      const { data: task } = await db
+        .from("tasks")
+        .select("status")
+        .eq("id", input.taskId)
+        .eq("organization_id", input.organizationId)
+        .maybeSingle();
+
+      deliveryStatus = result.workerError ? "failed" : result.claimed ? "completed" : "skipped";
+      await finishBackgroundWorkerRun({
+        id: run.id,
+        status: deliveryStatus,
+        startedAt,
+        metadata: {
+          dispatchId: input.dispatchId,
+          queueMessageId: input.queueMessageId,
+          claimed: result.claimed,
+          duplicateDelivery: false,
+          taskStatus: task?.status ?? null,
+        },
+      });
+      if (result.workerError) {
+        throw new Error("Background task execution returned a retryable worker failure");
+      }
+      return { ...result, duplicateDelivery: false };
+    } catch (error) {
+      deliveryStatus = "failed";
+      if (run) {
+        await finishBackgroundWorkerRun({
+          id: run.id,
+          status: "failed",
+          startedAt,
+          errorClass: "runtime",
+          metadata: {
+            dispatchId: input.dispatchId,
+            queueMessageId: input.queueMessageId,
+          },
+        }).catch(() => {});
+      }
+      throw error;
+    }
+  } finally {
+    await finishBackgroundDelivery({
+      dispatchId: input.dispatchId,
+      attempt: input.attempt,
+      workerId,
+      status: deliveryStatus,
+      metadata: {
+        queueMessageId: input.queueMessageId,
+        duplicateDelivery: false,
+      },
+    }).catch((error) => {
+      console.error(JSON.stringify({
+        event: "ops.delivery_finish_failed",
+        dispatchId: input.dispatchId,
+        attempt: input.attempt,
+        error: error instanceof Error ? error.message.slice(0, 200) : "unknown",
+      }));
+    });
+  }
+}
+
+export async function replayBackgroundDeadLetter(id: number, runtimeEnv: unknown) {
+  hydrateRuntimeEnvironment(runtimeEnv);
+  const newDispatchId = `dlq_${id}_${crypto.randomUUID()}`;
+  const claim = await claimBackgroundDeadLetterReplay(id, newDispatchId);
+  if (!claim) return { replayed: false, reason: "already_replayed_or_inflight" };
+  if (!claim.taskId || !claim.organizationId) {
+    throw new Error("DLQ entry has no task identity and cannot be replayed");
+  }
+
+  await enqueueTask({
+    taskId: claim.taskId,
+    organizationId: claim.organizationId,
+    reason: "dlq_replay",
+    runtimeEnv,
+    dispatchId: newDispatchId,
+  });
+  const marked = await markBackgroundDeadLetterReplayed(id, newDispatchId);
+  if (!marked) throw new Error("DLQ replay enqueue succeeded but replay finalization was fenced");
+
+  await appendEvent(claim.taskId, claim.organizationId, "task.dlq_replayed", {
+    deadLetterId: id,
+    originalDispatchId: claim.dispatchId,
+    originalQueueMessageId: claim.queueMessageId,
+    replayDispatchId: newDispatchId,
+    replayCount: "recorded",
+  }).catch(() => {});
+
+  return { replayed: true, deadLetterId: id, dispatchId: newDispatchId };
 }
