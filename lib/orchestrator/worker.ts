@@ -329,8 +329,15 @@ export async function processTask(
       return { claimed: true, leaseLost: true, task: current };
     }
     const message = error instanceof Error ? error.message : "Unknown worker error";
+    const isDailyQuotaExhausted = /daily(?: free)? allocation.*exhausted|used up your daily free allocation|daily quota exhausted|4006/i.test(message);
     const retryAt = new Date(
-      Date.now() + Math.min(60_000, Math.max(5_000, Number(process.env.WORKER_ERROR_RETRY_MS ?? "30000"))),
+      isDailyQuotaExhausted
+        ? Date.UTC(
+            new Date().getUTCFullYear(),
+            new Date().getUTCMonth(),
+            new Date().getUTCDate() + 1,
+          )
+        : Date.now() + Math.min(60_000, Math.max(5_000, Number(process.env.WORKER_ERROR_RETRY_MS ?? "30000"))),
     ).toISOString();
     try {
       await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, {
@@ -339,12 +346,21 @@ export async function processTask(
         run_after: retryAt,
         completed_at: null,
       });
-      await appendEvent(taskId, organizationId, "task.worker_error", { message, retryAt });
+      await appendEvent(taskId, organizationId, isDailyQuotaExhausted ? "task.quota_deferred" : "task.worker_error", {
+        message,
+        retryAt,
+        retryClass: isDailyQuotaExhausted ? "daily_quota" : "transient",
+      });
     } catch (ownershipError) {
       if (!(ownershipError instanceof TaskLeaseLostError)) throw ownershipError;
       return { claimed: true, leaseLost: true, task: await getTask(taskId, organizationId) };
     }
-    return { claimed: true, workerError: true, task: await getTask(taskId, organizationId) };
+    return {
+      claimed: true,
+      workerError: !isDailyQuotaExhausted,
+      deferred: isDailyQuotaExhausted,
+      task: await getTask(taskId, organizationId),
+    };
   } finally {
     if (options?.releaseLease !== false) {
       await settleTaskLease(taskId, organizationId, workerId, leaseGeneration).catch(() => null);
