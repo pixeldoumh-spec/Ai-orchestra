@@ -339,70 +339,77 @@ export default function Home() {
               </section>
             )}
 
-            <section className="welcomeArea">
-              <div className="welcomeKicker"><Icon name="spark" size={15} /> Agentic workspace</div>
-              <h1>What would you like to get done?</h1>
-              <p>
-                Give Orchestra the outcome. It can research, reason, delegate to specialists,
-                use approved tools, and verify the result—while keeping the infrastructure out of your way.
-              </p>
+            <section className="chatWelcome">
+              <div className="chatWelcomeMark"><span className="brandMark">A</span></div>
+              <h1>How can I help you?</h1>
+              <p>Give Orchestra a goal. It will plan the work, coordinate specialists, use approved tools, and verify the result.</p>
             </section>
 
-            <section className="suggestionRow" aria-label="Suggested tasks">
-              <SuggestionCard
-                title="Research a topic"
-                description="Sources → analysis → verified brief"
-                onClick={() => setGoal("Research this market and summarize the strongest opportunities.")}
-              />
-              <SuggestionCard
-                title="Create a report"
-                description="Collect → analyze → write → verify"
-                onClick={() => setGoal("Prepare a concise weekly business report.")}
-              />
-              <SuggestionCard
-                title="Explore knowledge"
-                description="Workspace memory + documents"
-                onClick={() => setGoal("Review our workspace knowledge and identify what changed this week.")}
-              />
+            <section className="chatPromptSuggestions" aria-label="Suggested prompts">
+              <button type="button" onClick={() => setGoal("Research the latest developments in AI orchestration and summarize the most important trends.")}>
+                <span>Research a topic</span><small>Sources and verified brief</small>
+              </button>
+              <button type="button" onClick={() => setGoal("Prepare a concise weekly business report with key changes, risks, and recommended actions.")}>
+                <span>Create a report</span><small>Collect, analyze, write, verify</small>
+              </button>
+              <button type="button" onClick={() => setGoal("Review our workspace knowledge and identify the most important changes this week.")}>
+                <span>Use workspace knowledge</span><small>Memory and documents</small>
+              </button>
             </section>
 
-            <section className="composerWrap">
-              <div className="composerBox">
+            <section className="chatComposerSection">
+              <div className="chatComposerBox">
                 <textarea
                   id="goal-input"
                   value={goal}
                   onChange={(e) => setGoal(e.target.value)}
-                  placeholder="Ask Orchestra anything…"
-                  aria-label="Goal"
+                  placeholder="Message AI Orchestra…"
+                  aria-label="Task goal"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!loading && !isWorkspaceMissing) void run();
+                    }
+                  }}
                 />
 
-                <div className="composerBottom">
-                  <div className="composerTools">
-                    <button className={"composerTool " + (showCapabilities ? "selected" : "")} type="button" onClick={() => setShowCapabilities((v) => !v)}>
-                      <Icon name="plus" size={14} /> Capabilities
-                    </button>
-                    <span className="composerHint">Research · knowledge · delegation · verification</span>
+                <div className="chatComposerToolbar">
+                  <button
+                    className={"chatComposerIconButton " + (showCapabilities ? "selected" : "")}
+                    type="button"
+                    onClick={() => setShowCapabilities((v) => !v)}
+                    aria-label="Show Orchestra capabilities"
+                    title="Capabilities"
+                  >
+                    <Icon name="plus" size={17} />
+                  </button>
+
+                  <div className="chatComposerMode">
+                    <span className="chatComposerModeDot" />
+                    <span>Auto orchestration</span>
                   </div>
 
-                  <button className="runButton" type="button" disabled={loading || isWorkspaceMissing} onClick={run}>
-                    {loading ? "Running…" : "Run with Orchestra"}
-                    <Icon name="arrow" size={14} />
+                  <button
+                    className="chatSendButton"
+                    type="button"
+                    disabled={loading || isWorkspaceMissing || !goal.trim()}
+                    onClick={() => void run()}
+                    aria-label="Run task"
+                    title="Run task"
+                  >
+                    <Icon name="arrow" size={15} />
                   </button>
                 </div>
 
                 {showCapabilities && (
-                  <div className="capabilityPopover">
-                    <div><Icon name="check" size={14} /><span><strong>Research</strong><small>Web and workspace sources</small></span></div>
-                    <div><Icon name="check" size={14} /><span><strong>Specialists</strong><small>Research, analysis, writer and verifier agents</small></span></div>
-                    <div><Icon name="check" size={14} /><span><strong>Governance</strong><small>Tenant policy, budgets and approval gates</small></span></div>
-                    <div><Icon name="shield" size={14} /><span><strong>Safety</strong><small>High-impact external actions can require approval</small></span></div>
+                  <div className="chatCapabilities">
+                    <div><strong>Research</strong><span>Web and workspace evidence</span></div>
+                    <div><strong>Specialists</strong><span>Research, analysis, writer, verifier</span></div>
+                    <div><strong>Governance</strong><span>Budgets, policies and approvals</span></div>
                   </div>
                 )}
               </div>
-              <div className="composerSafety">
-                <Icon name="shield" size={12} />
-                <span>You stay in control. External side effects remain policy-gated.</span>
-              </div>
+              <div className="chatComposerHint">Shift + Enter for a new line · External actions remain approval-gated</div>
             </section>
 
             {message && <div className="friendlyMessage" role="status">{message}</div>}
