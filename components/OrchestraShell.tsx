@@ -58,6 +58,24 @@ export function OrchestraShell({ children, title, section }: { children: ReactNo
   const pathname = usePathname();
   const active = section ?? groups.flatMap((group) => group.items).find((item) => item.href === pathname)?.label ?? "Workspace";
   const [recentTasks, setRecentTasks] = useState<any[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const open = () => setSearchOpen(true);
+    const key = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("orchestra:search", open);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("orchestra:search", open);
+      window.removeEventListener("keydown", key);
+    };
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -151,6 +169,36 @@ export function OrchestraShell({ children, title, section }: { children: ReactNo
       </section>
 
       <MobileWorkspaceNav />
+      {searchOpen && (
+        <div className="orchestraSearchOverlay" role="presentation" onMouseDown={(event) => {
+          if (event.currentTarget === event.target) setSearchOpen(false);
+        }}>
+          <div className="orchestraSearchDialog" role="dialog" aria-modal="true" aria-label="Search workspace">
+            <div className="orchestraSearchHead">
+              <Icon name="search" size={16} />
+              <input
+                autoFocus
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search runs and workspace"
+                aria-label="Search runs and workspace"
+              />
+              <button type="button" onClick={() => setSearchOpen(false)} aria-label="Close search">Esc</button>
+            </div>
+            <div className="orchestraSearchResults">
+              {(search ? recentTasks.filter((task: any) => String(task.goal ?? "").toLowerCase().includes(search.toLowerCase())) : recentTasks).slice(0, 8).map((task: any) => (
+                <a key={task.id} href={"/runs?task=" + encodeURIComponent(task.id)} onClick={() => setSearchOpen(false)}>
+                  <span>{task.goal}</span>
+                  <small>{formatRecentStatus(task.status)}</small>
+                </a>
+              ))}
+              {((search ? recentTasks.filter((task: any) => String(task.goal ?? "").toLowerCase().includes(search.toLowerCase())) : recentTasks).length === 0) && (
+                <div className="orchestraSearchEmpty">No matching runs yet.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
