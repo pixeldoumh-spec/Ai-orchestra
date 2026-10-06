@@ -484,3 +484,29 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 @media(min-width:721px){
   .mobileWorkspaceNav,.mobileMoreSheet,.mobileNavBackdrop{display:none!important}
 }
+
+
+/* --- Structured execution result --- */
+.executionResult{display:grid;gap:10px;padding:14px;border-top:1px solid var(--border);background:#fcfcfa}
+.executionParagraph{margin:0;color:#3b3d39;font-size:12px;line-height:1.72;white-space:pre-wrap}
+.executionHeading{margin:4px 0 0;color:#22241f;line-height:1.25}
+.executionHeading:first-child{margin-top:0}
+.executionList{margin:0;padding-left:20px;color:#444640;font-size:12px;line-height:1.7}
+.executionList li+li{margin-top:3px}
+.executionCode{position:relative;margin:0;padding:14px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:#f4f4f0;color:#30322e;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:pre-wrap;word-break:break-word}
+.executionCode code{font:inherit}
+.executionCodeLang{display:block;margin-bottom:8px;color:#8c8e88;font:700 8px/1.2 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase}
+.executionTableWrap{width:100%;overflow:auto;border:1px solid var(--border);border-radius:10px;background:#fff}
+.executionTable{width:100%;border-collapse:collapse;min-width:520px;font-size:11px}
+.executionTable th{padding:9px 10px;text-align:left;background:#f3f4f0;color:#555851;font-size:9px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.executionTable td{padding:9px 10px;vertical-align:top;color:#3f413d;border-bottom:1px solid #efefe9;line-height:1.5}
+.executionTable tbody tr:last-child td{border-bottom:0}
+.executionTable tbody tr:nth-child(even){background:#fcfcfa}
+.executionTable code{font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:#5b5e58}
+.executionObject{display:grid;gap:8px}
+.executionField{display:grid;grid-template-columns:minmax(95px,150px) minmax(0,1fr);gap:10px;padding:8px 0;border-bottom:1px solid #efefe9}
+.executionField:last-child{border-bottom:0}
+.executionFieldLabel{color:#8a8c86;font-size:9px;font-weight:750;text-transform:uppercase;letter-spacing:.05em}
+.executionFieldValue{min-width:0;color:#3f413d;font-size:11px}
+.executionFieldValue .executionResult{padding:0;border:0;background:transparent}
+.resultNull{color:#9b9d97}
