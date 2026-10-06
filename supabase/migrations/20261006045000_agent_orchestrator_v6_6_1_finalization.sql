@@ -389,8 +389,8 @@ begin
          lease_until is null
          or lease_until <= p_now
          or (
-           last_heartbeat_at is not null
-           and last_heartbeat_at <= p_now - make_interval(secs => p_stale_lease_seconds)
+           last_heartbeat_at is null
+           or last_heartbeat_at <= p_now - make_interval(secs => p_stale_lease_seconds)
          )
        )
      order by updated_at asc
