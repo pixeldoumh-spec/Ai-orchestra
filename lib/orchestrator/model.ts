@@ -603,10 +603,11 @@ export function getDefaultModel(
       : role === "verifier"
         ? process.env.AI_VERIFIER_MODEL
         : process.env.WORKERS_AI_MODEL ?? process.env.OPENAI_MODEL;
+    const routingMode = (process.env.AI_ROUTING_MODE ?? "dynamic").trim().toLowerCase();
     const decision = selectModelForInput({
       role: routeRole,
       ...context,
-      explicitModel: context?.explicitModel ?? null,
+      explicitModel: context?.explicitModel ?? (routingMode === "pinned" ? configured : null),
     });
     if (decision.model) return decision.model;
     return configured?.startsWith("@cf/") ? configured : "@cf/openai/gpt-oss-20b";
