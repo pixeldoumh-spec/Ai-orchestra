@@ -8,7 +8,8 @@ security invoker
 set search_path = public
 as $$
 begin
-  if OLD.status in ('verified','failed','cancelled')
+  if TG_OP = 'UPDATE'
+     and OLD.status in ('verified','failed','cancelled')
      and NEW.status is distinct from OLD.status then
     raise exception 'Terminal task is immutable';
   end if;
