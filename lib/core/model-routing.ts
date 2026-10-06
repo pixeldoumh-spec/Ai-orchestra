@@ -296,6 +296,8 @@ function scoreModel(model: ModelProfile, input: ModelSelectionInput, needs: Set<
   const reasoningPenalty = input.reasoningEffort && !model.reasoningModes.includes(input.reasoningEffort)
     ? -8
     : 0;
+  const codingBonus = needs.has("coding") && model.id === "@cf/moonshotai/kimi-k2.7-code" ? 15 : 0;
+  const longContextBonus = needs.has("long_context") && model.contextWindow >= 1_000_000 ? 8 : 0;
   return (
     model.qualityScore * weights.quality +
     model.latencyScore * weights.latency +
@@ -303,6 +305,8 @@ function scoreModel(model: ModelProfile, input: ModelSelectionInput, needs: Set<
     capabilityScore(model, needs) * weights.capability +
     contextScore * weights.context +
     model.priority * 0.03 +
+    codingBonus +
+    longContextBonus +
     preferredBonus +
     explicitBonus +
     reasoningPenalty
