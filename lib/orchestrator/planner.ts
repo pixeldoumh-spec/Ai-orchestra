@@ -98,10 +98,24 @@ export async function planWorkflow(input: {
     .slice(0, 32);
 
   const model = getModelAdapter(input.runtimeEnv);
+  const plannerModel = getDefaultModel("planner", {
+    goal: input.goal,
+    objective: input.goal,
+    agentCapabilities: agentCatalog.flatMap((agent) => agent.capabilities),
+    estimatedInputTokens: Math.ceil(JSON.stringify({ goal: input.goal, agents: agentCatalog, priorResults: input.priorResults?.slice(-12) ?? [] }).length / 4),
+    reasoningEffort: (process.env.AI_PLANNER_REASONING_EFFORT as "low" | "medium" | "high" | "xhigh" | undefined) ?? "high",
+  });
 
   try {
     const result = await model.complete({
-      model: getDefaultModel("planner"),
+      model: plannerModel,
+      routingRole: "planner",
+      routingContext: {
+        goal: input.goal,
+        objective: input.goal,
+        agentCapabilities: agentCatalog.flatMap((agent) => agent.capabilities),
+        estimatedInputTokens: Math.ceil(JSON.stringify({ goal: input.goal, agents: agentCatalog, priorResults: input.priorResults?.slice(-12) ?? [] }).length / 4),
+      },
       system: "You are the planning authority for AI Orchestra. Produce the smallest safe executable DAG that can satisfy the user's goal. Use only listed agents. Prefer useful parallelism for independent work. Include a verification step that covers all terminal work. Separate evidence gathering, reasoning, synthesis and verification. Do not fabricate tool access or external facts. Return only the required structured plan. Never expose private chain-of-thought.",
       user: JSON.stringify({
         goal: input.goal,
