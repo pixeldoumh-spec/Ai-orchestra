@@ -61,6 +61,32 @@ export function stepNeedsRecovery(
   return executionLeaseGeneration == null || executionLeaseGeneration !== currentLeaseGeneration;
 }
 
+export function isTerminalTaskStatus(status: string): boolean {
+  return ["verified", "failed", "cancelled"].includes(status);
+}
+
+export function canTransitionTaskStatus(from: string, to: string): boolean {
+  if (isTerminalTaskStatus(from)) return isTerminalTaskStatus(to) && from === to;
+  if (from === to) return true;
+  if (to === "queued") return ["running", "awaiting_approval"].includes(from);
+  if (to === "running") return from === "queued";
+  if (to === "awaiting_approval") return from === "running";
+  if (to === "verified") return from === "running";
+  if (to === "failed") return from === "running";
+  if (to === "cancelled") return ["queued", "running", "awaiting_approval"].includes(from);
+  return false;
+}
+
+export function ownsLease(
+  task: { status?: string; lease_owner?: string | null; lease_generation?: number | bigint | null },
+  workerId: string,
+  leaseGeneration: number,
+): boolean {
+  return task.status === "running"
+    && task.lease_owner === workerId
+    && Number(task.lease_generation ?? -1) === leaseGeneration;
+}
+
 
 export function isStaleLeaseTakeoverEligible(
   task: RuntimeTaskSnapshot,
