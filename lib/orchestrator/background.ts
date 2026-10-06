@@ -203,7 +203,7 @@ export async function executeQueuedTask(input: {
         input.organizationId,
         workerId,
         input.runtimeEnv,
-        { claimedLease },
+        { claimedLease, releaseLease: false },
       );
       const db = createAdminClient();
       const { data: task } = await db
@@ -247,6 +247,14 @@ export async function executeQueuedTask(input: {
       throw error;
     }
   } finally {
+    if (claimedLease) {
+      await settleTaskLease(
+        input.taskId,
+        input.organizationId,
+        workerId,
+        Number(claimedLease.lease_generation ?? 0),
+      ).catch(() => null);
+    }
     await finishBackgroundDelivery({
       dispatchId: input.dispatchId,
       attempt: input.attempt,
