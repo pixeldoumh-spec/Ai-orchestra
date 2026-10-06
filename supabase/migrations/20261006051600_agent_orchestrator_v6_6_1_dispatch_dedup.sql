@@ -5,8 +5,6 @@
 update public.background_delivery_attempts d
 set status='failed',
     completed_at=coalesce(d.completed_at, now()),
-    error_class='integrity',
-    error_code='duplicate_dispatch_active',
     metadata=coalesce(d.metadata,'{}'::jsonb) || jsonb_build_object('recoveredBy','v661_dispatch_dedup_migration')
 where d.status='running'
   and exists (
