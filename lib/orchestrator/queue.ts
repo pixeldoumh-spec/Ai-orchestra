@@ -30,7 +30,7 @@ export function newDispatchId(taskId: string): string {
 export async function enqueueTask(input: {
   taskId: string;
   organizationId: string;
-  reason?: "user_start" | "cron_redrive" | "step_retry" | "yield";
+  reason?: "user_start" | "cron_redrive" | "step_retry" | "yield" | "dlq_replay";
   runtimeEnv?: unknown;
   dispatchId?: string;
 }) {
