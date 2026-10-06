@@ -99,7 +99,6 @@ export default function Home() {
   const [workspaceName, setWorkspaceName] = useState("My Workspace");
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [showCapabilities, setShowCapabilities] = useState(false);
-  const [recentTasks, setRecentTasks] = useState<Task[]>([]);
 
   async function loadConnectors() {
     const r = await fetch("/api/connectors");
@@ -118,9 +117,6 @@ export default function Home() {
     const d = await r.json();
     setOrg(d.organization);
     setAgents(d.agents ?? []);
-
-    const historyResponse = await fetch("/api/tasks?limit=6");
-    if (historyResponse.ok) setRecentTasks((await historyResponse.json()).tasks ?? []);
 
     const teamResponse = await fetch("/api/enterprise/teams");
     if (teamResponse.ok) setTeams((await teamResponse.json()).teams ?? []);
@@ -414,24 +410,7 @@ export default function Home() {
 
             {message && <div className="friendlyMessage" role="status">{message}</div>}
 
-            {task ? (
-              <TaskPanel task={task} teams={teams} events={executionEvents} />
-            ) : (
-              <section className="recentRuns">
-                <div className="recentRunsHeader">
-                  <div><div className="sectionTitle">Recent runs</div><div className="muted tiny">Continue where you left off.</div></div>
-                  <a href="/runs" className="smallLink">View all →</a>
-                </div>
-                {recentTasks.length===0 ? (
-                  <div className="emptyState compact"><div className="emptyIcon"><Icon name="spark" size={17} /></div><strong>Your next run will appear here</strong><span>Orchestra will keep the run addressable after you leave this page.</span></div>
-                ) : recentTasks.map((t:any)=>(
-                  <a key={t.id} href={"/runs?task=" + encodeURIComponent(t.id)} className="recentRunItem">
-                    <div><strong>{t.goal}</strong><span>{t.id} · {formatHomeStatus(t.status)}</span></div>
-                    <span>{t.spent_cost_cents??0}¢</span>
-                  </a>
-                ))}
-              </section>
-            )}
+            {task && <TaskPanel task={task} teams={teams} events={executionEvents} />}
 
             <footer className="orchestraFooter">
               <span>{ch.active}/{ch.total} connectors active</span>
@@ -445,24 +424,6 @@ export default function Home() {
       </section>
       <MobileWorkspaceNav />
     </div>
-  );
-}
-
-function SuggestionCard({
-  title,
-  description,
-  onClick,
-}: {
-  title: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button className="suggestionCard" type="button" onClick={onClick}>
-      <span className="suggestionTitle">{title}</span>
-      <span className="suggestionDescription">{description}</span>
-      <span className="suggestionArrow"><Icon name="arrow" size={13} /></span>
-    </button>
   );
 }
 
