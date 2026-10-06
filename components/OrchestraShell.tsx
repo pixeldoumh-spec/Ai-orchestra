@@ -4,7 +4,7 @@ import { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { MobileWorkspaceNav } from "@/components/MobileWorkspaceNav";
 
-type IconName = "home"|"runs"|"knowledge"|"network"|"marketplace"|"billing"|"workspace"|"settings"|"user";
+type IconName = "home"|"runs"|"knowledge"|"network"|"marketplace"|"billing"|"workspace"|"settings"|"user"|"agents"|"workflow";
 
 function Icon({ name }: { name: IconName }) {
   const base = { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -18,6 +18,8 @@ function Icon({ name }: { name: IconName }) {
     workspace:<><rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M9 7h2"/><path d="M13 7h2"/><path d="M9 11h2"/><path d="M13 11h2"/><path d="M9 15h2"/><path d="M13 15h2"/></>,
     settings:<><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15 21 16.2l-1.7 2.9-1.9-.8a8.2 8.2 0 0 1-1.8 1L15.2 21h-3.4l-.4-1.7a8.2 8.2 0 0 1-1.8-1l-1.9.8L6 16.2 7.7 7l1.9.8a8.2 8.2 0 0 1 1.8-1L11.8 5h3.4l.4 1.8a8.2 8.2 0 0 1 1.8 1l1.9-.8L21 9.8 19.4 11a8.2 8.2 0 0 1 .2 2 8.2 8.2 0 0 1-.2 2Z"/></>,
     user:<><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.2 3.1-5 7-5s6.2 1.8 7 5"/></>,
+    agents:<><circle cx="8" cy="8" r="2.5"/><circle cx="17" cy="8" r="2.5"/><path d="M4 19c.4-3.2 1.8-5 4-5s3.6 1.8 4 5"/><path d="M13 19c.3-2.8 1.7-5 4-5s3.6 2.2 4 5"/></>,
+    workflow:<><rect x="4" y="5" width="6" height="5" rx="1"/><rect x="14" y="14" width="6" height="5" rx="1"/><path d="M10 7.5h4v9h0"/><path d="M7 10v4h10"/></>,
   };
   return <svg {...base}>{p[name]}</svg>;
 }
@@ -25,6 +27,8 @@ function Icon({ name }: { name: IconName }) {
 const items = [
   { href:"/", label:"Home", icon:"home" as IconName },
   { href:"/runs", label:"Runs", icon:"runs" as IconName },
+  { href:"/workflow", label:"Workflow Studio", icon:"workflow" as IconName },
+  { href:"/agents", label:"Agents", icon:"agents" as IconName },
   { href:"/network", label:"Agent network", icon:"network" as IconName },
   { href:"/knowledge", label:"Knowledge", icon:"knowledge" as IconName },
   { href:"/marketplace", label:"Marketplace", icon:"marketplace" as IconName },
