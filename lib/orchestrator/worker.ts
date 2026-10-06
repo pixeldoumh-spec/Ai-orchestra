@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { listAgents } from "./registry";
-import { getDefaultModel, getModelAdapter } from "./model";
+import { getDefaultModel, getModelAdapter, selectModelForInput } from "./model";
 import { planWorkflow } from "./planner";
 import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, recoverStaleTaskSteps, settleTaskLease, TaskLeaseLostError, updateStepOwned, updateTaskOwned } from "./repository";
 import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, PersistedTask } from "./types";
@@ -31,12 +31,59 @@ const VERIFICATION_OUTPUT_SCHEMA = {
   },
 } as const;
 
-function resolveAgentModel(agent: AgentDefinition, stepKind: "work" | "verification"): string {
-  if (stepKind === "verification") return getDefaultModel("verifier");
+function routingRoleForStep(agent: AgentDefinition, stepKind: "work" | "verification") {
+  if (stepKind === "verification") return "verifier" as const;
+  const role = getAgentSpecialization(agent, stepKind).role;
+  return role === "research" || role === "analysis" || role === "writer" ? role : "agent";
+}
+
+function estimateRoutingTokens(input: {
+  goal: string;
+  objective: string;
+  priorResults: unknown[];
+  knowledgeContext: string;
+}): number {
+  const chars = input.goal.length
+    + input.objective.length
+    + Math.min(120_000, JSON.stringify(input.priorResults).length)
+    + Math.min(120_000, input.knowledgeContext.length);
+  return Math.ceil(chars / 4);
+}
+
+function resolveAgentModel(input: {
+  agent: AgentDefinition;
+  stepKind: "work" | "verification";
+  goal: string;
+  objective: string;
+  priorResults: unknown[];
+  knowledgeContext: string;
+  toolCount: number;
+}) {
+  const { agent, stepKind } = input;
+  const role = routingRoleForStep(agent, stepKind);
   const provider = (process.env.AI_MODEL_PROVIDER ?? "mock").trim().toLowerCase();
   const cloudflare = provider === "cloudflare_workers_ai" || provider === "workers_ai" || provider === "cloudflare-ai";
-  if (agent.model && (!cloudflare || agent.model.startsWith("@cf/"))) return agent.model;
-  return getDefaultModel("agent");
+  const estimatedInputTokens = estimateRoutingTokens(input);
+
+  if (stepKind === "work" && agent.model && (!cloudflare || agent.model.startsWith("@cf/"))) {
+    return {
+      model: agent.model,
+      role,
+      candidates: [{ model: agent.model, score: 10_000, capabilities: [], paid: false }],
+      reason: "explicit-agent-model",
+    };
+  }
+
+  const decision = selectModelForInput({
+    role,
+    goal: input.goal,
+    objective: input.objective,
+    agentCapabilities: agent.capabilities,
+    toolCount: input.toolCount,
+    estimatedInputTokens,
+    reasoningEffort: resolveReasoningEffort(stepKind),
+  });
+  return { ...decision, estimatedInputTokens };
 }
 
 function resolveReasoningEffort(stepKind: "work" | "verification"): "none" | "low" | "medium" | "high" | "xhigh" {
@@ -371,7 +418,25 @@ async function runStep(input: {
           ...nativeTools,
           ...hostedTools.filter((tool) => !model.supportsTool || model.supportsTool(tool.type)),
         ];
-    const modelName = resolveAgentModel(agent, step.kind);
+    const routing = resolveAgentModel({
+      agent,
+      stepKind: step.kind,
+      goal,
+      objective: step.objective,
+      priorResults,
+      knowledgeContext,
+      toolCount: tools.length,
+    });
+    const modelName = routing.model;
+    await appendEvent(taskId, organizationId, "model.selected", {
+      stepId: step.id,
+      agentId: agent.id,
+      role: routing.role,
+      model: routing.model,
+      candidates: routing.candidates.slice(0, 5),
+      reason: routing.reason,
+      estimatedInputTokens: routing.estimatedInputTokens ?? null,
+    });
     const reasoningEffort = resolveReasoningEffort(step.kind);
     const maxTurns = Math.min(MAX_MODEL_TURNS, Math.max(1, Number(process.env.AI_MAX_TOOL_TURNS ?? "8")));
     let pendingInput: unknown[] = [{
@@ -402,6 +467,15 @@ async function runStep(input: {
           inputItems: pendingInput,
           model: modelName,
           tools,
+          routingRole: routing.role,
+          routingContext: {
+            goal,
+            objective: step.objective,
+            agentCapabilities: agent.capabilities,
+            toolCount: tools.length,
+            estimatedInputTokens: routing.estimatedInputTokens,
+            explicitModel: agent.model ?? null,
+          },
           outputSchema: step.kind === "verification" ? VERIFICATION_OUTPUT_SCHEMA : null,
           reasoningEffort,
           verbosity: step.kind === "verification" ? "low" : "medium",
@@ -465,6 +539,10 @@ async function runStep(input: {
         fallbackFromModel: result.fallbackFrom?.model ?? null,
         metadata: {
           specialization: getAgentSpecialization(agent, step.kind).role,
+          routingRole: routing.role,
+          routingReason: routing.reason,
+          selectedModel: routing.model,
+          candidateModels: routing.candidates.slice(0, 5).map((candidate) => candidate.model),
           toolCallCount: result.functionCalls?.length ?? 0,
         },
       });
@@ -504,6 +582,10 @@ async function runStep(input: {
         provider: result.provider ?? model.provider ?? null,
         resourceUsage: result.resourceUsage ?? null,
         specialization: getAgentSpecialization(agent, step.kind).role,
+        routingRole: routing.role,
+        routingReason: routing.reason,
+        selectedModel: routing.model,
+        candidateModels: routing.candidates.slice(0, 5).map((candidate) => candidate.model),
       });
       if (metering?.budget_exceeded) throw new Error("Enterprise monthly spend ceiling exceeded by actual model usage");
       if (result.usageCents > agent.budgetCents) throw new Error(`Agent budget exceeded: ${result.usageCents} > ${agent.budgetCents} cents`);
