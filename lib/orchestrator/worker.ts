@@ -116,9 +116,15 @@ function hydrateRuntimeEnvironment(runtimeEnv?: unknown) {
   }
 }
 
-export async function processTask(taskId: string, organizationId: string, workerId = `worker_${crypto.randomUUID()}`, runtimeEnv?: unknown) {
+export async function processTask(
+  taskId: string,
+  organizationId: string,
+  workerId = `worker_${crypto.randomUUID()}`,
+  runtimeEnv?: unknown,
+  options?: { claimedLease?: Awaited<ReturnType<typeof claimTask>> },
+) {
   hydrateRuntimeEnvironment(runtimeEnv);
-  const claimed = await claimTask(taskId, organizationId, workerId);
+  const claimed = options?.claimedLease ?? await claimTask(taskId, organizationId, workerId);
   if (!claimed) return { claimed: false, task: await getTask(taskId, organizationId) };
   const leaseGeneration = Number(claimed.lease_generation ?? 0);
 
