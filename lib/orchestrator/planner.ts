@@ -120,7 +120,7 @@ export async function planWorkflow(input: {
     return validatePlan(plan, available);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? "");
-    if (/structured model output|could not be parsed|structured output|invalid.*plan|planner selected unavailable agent/i.test(message)) {
+    if (/structured model output|could not be parsed|structured output|invalid.*plan|planner selected unavailable agent|specialized workflow is incomplete|terminal work step|workflow must contain|dependency cycle|missing (verification target|dependency)|duplicate (step|dependency)|cannot depend on itself|invalid (step id|objective)|maxAttempts/i.test(message)) {
       return buildAdaptiveFallbackPlan(input.goal, fallbackIds(input.agents));
     }
     throw error;
