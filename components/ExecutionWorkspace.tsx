@@ -183,7 +183,7 @@ function orderStepsByDependencies(steps: any[]) {
 
   const dependencyIds = (step: any) => (Array.isArray(step?.depends_on) ? step.depends_on : [])
     .map((dependency: unknown) => String(dependency))
-    .map((dependency) => byId.has(dependency) ? dependency : String(byPlanId.get(dependency)?.id ?? ""))
+    .map((dependency: string) => byId.has(dependency) ? dependency : String(byPlanId.get(dependency)?.id ?? ""))
     .filter(Boolean);
 
   const indegree = new Map<string, number>();
