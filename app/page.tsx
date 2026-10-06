@@ -539,20 +539,42 @@ function TaskPanel({ task, teams }: { task: Task; teams: any[] }) {
         </span>
       </div>
 
-      <div className="executionTimeline">
-        {steps.map((step: any, i: number) => (
-          <div className="executionStep" key={step.id}>
-            <div className={"stepMarker " + step.status}>{step.status === "verified" || step.status === "succeeded" ? <Icon name="check" size={13} /> : i + 1}</div>
-            <div className="stepDetails">
-              <div className="stepLine">
-                <strong>{prettyStepLabel(step)}</strong>
-                <span>{formatStatus(step.status)}</span>
-              </div>
-              <div className="stepObjective">{step.objective}</div>
-              <div className="stepTrack"><span style={{ width: stepWidth(step.status) }} /></div>
+      <div className="executionBay">
+        <div className="executionBayTop">
+          <div className="executionBayTitle">
+            <span className="executionLiveDot" />
+            <div>
+              <strong>Live execution</strong>
+              <span>Agents are working through the plan</span>
             </div>
           </div>
-        ))}
+          <div className="executionStats">
+            <span>{steps.filter((s: any) => s.status === "verified").length}/{steps.length} verified</span>
+            <span>{steps.find((s: any) => ["running","executing","working"].includes(s.status)) ? "Active model" : "Waiting"}</span>
+          </div>
+        </div>
+        <div className="executionTimeline">
+          {steps.map((step: any, i: number) => (
+            <div className={"executionStep " + (step.status === "running" ? "isActive" : "")} key={step.id}>
+              <div className="stepRail"><div className={"stepMarker " + step.status}>{step.status === "verified" || step.status === "succeeded" ? <Icon name="check" size={13} /> : i + 1}</div></div>
+              <div className="stepDetails">
+                <div className="stepLine">
+                  <div className="stepIdentity">
+                    <strong>{prettyStepLabel(step)}</strong>
+                    <span className="stepKind">{formatStatus(step.kind)}</span>
+                  </div>
+                  <span className="stepStatus">{formatStatus(step.status)}</span>
+                </div>
+                <div className="stepMeta">
+                  <span>{step.checkpoint?.model ? String(step.checkpoint.model) : "Model selected at runtime"}</span>
+                  <span>{step.id}</span>
+                </div>
+                <div className="stepObjective">{step.objective}</div>
+                <div className="stepTrack"><span style={{ width: stepWidth(step.status) }} /></div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {pending && (
