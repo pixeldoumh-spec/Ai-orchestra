@@ -121,7 +121,10 @@ export async function processTask(
   organizationId: string,
   workerId = `worker_${crypto.randomUUID()}`,
   runtimeEnv?: unknown,
-  options?: { claimedLease?: Awaited<ReturnType<typeof claimTask>> },
+  options?: {
+    claimedLease?: Awaited<ReturnType<typeof claimTask>>;
+    releaseLease?: boolean;
+  },
 ) {
   hydrateRuntimeEnvironment(runtimeEnv);
   const claimed = options?.claimedLease ?? await claimTask(taskId, organizationId, workerId);
@@ -343,7 +346,9 @@ export async function processTask(
     }
     return { claimed: true, workerError: true, task: await getTask(taskId, organizationId) };
   } finally {
-    await settleTaskLease(taskId, organizationId, workerId, leaseGeneration).catch(() => null);
+    if (options?.releaseLease !== false) {
+      await settleTaskLease(taskId, organizationId, workerId, leaseGeneration).catch(() => null);
+    }
   }
 }
 

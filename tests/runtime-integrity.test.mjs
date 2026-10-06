@@ -71,3 +71,10 @@ test("Queue integrity: expired lease is the takeover boundary", () => {
   assert.equal(isStaleLeaseTakeoverEligible(expiredLease, now, 300_000), true);
   assert.equal(isDispatchEligible(expiredLease, now, 120_000, 45_000), true);
 });
+
+test("Queue integrity: active execution stays fenced until worker-run lifecycle completes", () => {
+  const active = { status: "running", lease_until: "2026-10-06T08:10:00.000Z", last_heartbeat_at: "2026-10-06T07:50:00.000Z" };
+  const now = Date.parse("2026-10-06T08:00:00.000Z");
+  assert.equal(isStaleLeaseTakeoverEligible(active, now, 300000), false);
+  assert.equal(isDispatchEligible(active, now, 120000, 45000), false);
+});
