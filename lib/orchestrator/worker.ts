@@ -31,6 +31,11 @@ const VERIFICATION_OUTPUT_SCHEMA = {
   },
 } as const;
 
+function nextUtcResetIso(now = Date.now()): string {
+  const date = new Date(now);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1)).toISOString();
+}
+
 function routingRoleForStep(agent: AgentDefinition, stepKind: "work" | "verification"): ModelRouteRole {
   if (stepKind === "verification") return "verifier" as const;
   const role = getAgentSpecialization(agent, stepKind).role;
@@ -351,15 +356,11 @@ export async function processTask(
     }
     const message = error instanceof Error ? error.message : "Unknown worker error";
     const isDailyQuotaExhausted = /daily(?: free)? allocation.*exhausted|used up your daily free allocation|daily quota exhausted|4006/i.test(message);
-    const retryAt = new Date(
-      isDailyQuotaExhausted
-        ? Date.UTC(
-            new Date().getUTCFullYear(),
-            new Date().getUTCMonth(),
-            new Date().getUTCDate() + 1,
-          )
-        : Date.now() + Math.min(60_000, Math.max(5_000, Number(process.env.WORKER_ERROR_RETRY_MS ?? "30000"))),
-    ).toISOString();
+    const retryAt = isDailyQuotaExhausted
+      ? nextUtcResetIso()
+      : new Date(
+          Date.now() + Math.min(60_000, Math.max(5_000, Number(process.env.WORKER_ERROR_RETRY_MS ?? "30000"))),
+        ).toISOString();
     try {
       await updateTaskOwned(taskId, organizationId, workerId, leaseGeneration, {
         status: "queued",
@@ -803,6 +804,26 @@ async function runStep(input: {
     return { stepId: step.id, status: "verified", usageCents: totalUsageCents };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown step error";
+    const isDailyQuotaExhausted = /daily(?: free)? allocation.*exhausted|used up your daily free allocation|daily quota exhausted|4006/i.test(message);
+    if (isDailyQuotaExhausted) {
+      const retryAt = nextUtcResetIso();
+      await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
+      await updateStepOwned(step.id, taskId, organizationId, workerId, leaseGeneration, {
+        status: "queued",
+        error: message,
+        run_after: retryAt,
+        usage_cents: step.usage_cents,
+      });
+      await appendEvent(taskId, organizationId, "step.quota_deferred", {
+        stepId: step.id,
+        agentId: agent.id,
+        error: message,
+        retryAt,
+        retryClass: "daily_quota",
+        attempt,
+      });
+      return { stepId: step.id, status: "queued", usageCents: 0 };
+    }
     if (attempt < step.max_attempts) {
       const baseDelay = Math.min(60_000, 2 ** (attempt - 1) * 1_000);
       const jitter = Math.floor(Math.random() * Math.min(750, Math.max(50, baseDelay * 0.15)));
