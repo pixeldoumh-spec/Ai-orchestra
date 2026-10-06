@@ -116,6 +116,27 @@ function hydrateRuntimeEnvironment(runtimeEnv?: unknown) {
   }
 }
 
+function buildHandoffPacket(step: PersistedStep, agent?: AgentDefinition | null) {
+  const specialization = agent ? getAgentSpecialization(agent, step.kind) : null;
+  const raw = step.result;
+  const evidencePacketIds = raw && typeof raw === "object" && !Array.isArray(raw) && Array.isArray((raw as Record<string, unknown>).evidencePacketIds)
+    ? (raw as Record<string, unknown>).evidencePacketIds.filter((id): id is string => typeof id === "string").slice(0, 32)
+    : [];
+  const result = raw && typeof raw === "object" && !Array.isArray(raw) && "content" in (raw as Record<string, unknown>)
+    ? (raw as Record<string, unknown>).content
+    : raw;
+  return {
+    stepId: stepPlanId(step),
+    agentId: step.agent_id,
+    role: specialization?.role ?? (step.kind === "verification" ? "verifier" : "general"),
+    kind: step.kind,
+    objective: step.objective,
+    status: step.status,
+    result,
+    evidencePacketIds,
+  };
+}
+
 export async function processTask(
   taskId: string,
   organizationId: string,
@@ -255,7 +276,7 @@ export async function processTask(
           userId: typeof snapshot.created_by === "string" ? snapshot.created_by : "00000000-0000-0000-0000-000000000000",
           priorResults: snapshot.steps
             .filter((x) => x.plan_revision === snapshot.plan_revision && x.status === "verified")
-            .map((x) => ({ stepId: stepPlanId(x), result: x.result })),
+            .map((x) => buildHandoffPacket(x, agentMap.get(x.agent_id))),
           model,
           executionRegion: snapshot.execution_region,
           runtimeEnv,
@@ -286,7 +307,7 @@ export async function processTask(
           agents,
           priorResults: snapshot.steps
             .filter((x) => x.plan_revision === snapshot.plan_revision && x.status === "verified")
-            .map((x) => ({ stepId: stepPlanId(x), result: x.result })),
+            .map((x) => buildHandoffPacket(x, agentMap.get(x.agent_id))),
           failureContext: { stepId: failed.stepId, agentId: agent?.id ?? failedStep?.agent_id ?? "unknown", error: reason },
           runtimeEnv,
         });
@@ -388,6 +409,19 @@ async function runStep(input: {
   await heartbeatTask(taskId, organizationId, workerId, leaseGeneration);
   await updateStepOwned(step.id, taskId, organizationId, workerId, leaseGeneration, { status: "running", attempt_count: attempt, started_at: new Date().toISOString(), error: null });
   await appendEvent(taskId, organizationId, "step.started", { stepId: step.id, agentId: agent.id, attempt, kind: step.kind });
+  if (priorResults.length > 0) {
+    await appendEvent(taskId, organizationId, "model.handoff.received", {
+      stepId: step.id,
+      agentId: agent.id,
+      upstreamSteps: priorResults.map((item: any) => ({
+        stepId: typeof item?.stepId === "string" ? item.stepId : "unknown",
+        agentId: typeof item?.agentId === "string" ? item.agentId : null,
+        role: typeof item?.role === "string" ? item.role : null,
+        evidencePacketCount: Array.isArray(item?.evidencePacketIds) ? item.evidencePacketIds.length : 0,
+      })).slice(0, 12),
+    });
+  }
+
 
   let workspaceKnowledge: any[] = [];
   try {
@@ -473,7 +507,7 @@ async function runStep(input: {
         `Goal: ${goal}`,
         `Objective: ${step.objective}`,
         `Step kind: ${step.kind}`,
-        `Prior verified results: ${JSON.stringify(priorResults).slice(0, 24000)}`,
+        `Prior verified handoff packets: ${JSON.stringify(priorResults).slice(0, 24000)}`,
         step.kind === "verification"
           ? "Evaluate the produced work and return only the structured verification result."
           : "Produce useful work and use tools when they materially improve accuracy. Finish with the requested deliverable, not internal reasoning.",
