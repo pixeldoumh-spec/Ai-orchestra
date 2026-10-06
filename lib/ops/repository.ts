@@ -120,6 +120,109 @@ export async function getOperationsDashboard(organizationId: string, days = 30) 
 }
 
 
+export async function claimBackgroundDelivery(input: {
+  dispatchId: string;
+  queueMessageId: string;
+  taskId: string;
+  organizationId: string;
+  attempt: number;
+  workerId: string;
+  staleSeconds?: number;
+}) {
+  const db = createAdminClient();
+  const { data, error } = await db.rpc("claim_background_delivery", {
+    p_dispatch_id: input.dispatchId,
+    p_queue_message_id: input.queueMessageId,
+    p_task_id: input.taskId,
+    p_organization_id: input.organizationId,
+    p_attempt: Math.max(1, Math.floor(input.attempt)),
+    p_worker_id: input.workerId,
+    p_stale_seconds: Math.max(30, Math.floor(input.staleSeconds ?? 900)),
+  });
+  if (error) throw new Error(error.message);
+  return data as { claimed: boolean; reason?: string; deliveryId?: number; reclaimed?: boolean } | null;
+}
+
+export async function finishBackgroundDelivery(input: {
+  dispatchId: string;
+  attempt: number;
+  workerId: string;
+  status: "completed" | "failed" | "skipped";
+  metadata?: Record<string, unknown>;
+}) {
+  const db = createAdminClient();
+  const { data, error } = await db.rpc("finish_background_delivery", {
+    p_dispatch_id: input.dispatchId,
+    p_attempt: Math.max(1, Math.floor(input.attempt)),
+    p_worker_id: input.workerId,
+    p_status: input.status,
+    p_metadata: input.metadata ?? {},
+  });
+  if (error) throw new Error(error.message);
+  return data as { updated: boolean; reason?: string; status?: string } | null;
+}
+
+export async function sweepRuntimeIntegrity(input?: {
+  staleLeaseSeconds?: number;
+  staleWorkerRunSeconds?: number;
+  maxTasks?: number;
+}) {
+  const db = createAdminClient();
+  const { data, error } = await db.rpc("sweep_runtime_integrity", {
+    p_stale_lease_seconds: Math.max(30, Math.floor(input?.staleLeaseSeconds ?? 300)),
+    p_stale_worker_run_seconds: Math.max(30, Math.floor(input?.staleWorkerRunSeconds ?? 900)),
+    p_max_tasks: Math.max(1, Math.floor(input?.maxTasks ?? 25)),
+  });
+  if (error) throw new Error(error.message);
+  return data as {
+    recoveredTaskIds?: string[];
+    recoveredCount?: number;
+    closedWorkerRuns?: number;
+    sweptAt?: string;
+  };
+}
+
+export async function listBackgroundDeadLetters(limit = 50) {
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("background_dead_letters")
+    .select("id,organization_id,task_id,dispatch_id,queue_message_id,attempts,reason,payload_hash,metadata,created_at,replay_claimed_at,replay_dispatch_id,replay_count,replayed_at")
+    .order("created_at", { ascending: false })
+    .limit(Math.max(1, Math.min(100, Math.floor(limit))));
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function claimBackgroundDeadLetterReplay(id: number, newDispatchId: string, staleSeconds = 600) {
+  const db = createAdminClient();
+  const { data, error } = await db.rpc("claim_background_dead_letter_replay", {
+    p_id: id,
+    p_new_dispatch_id: newDispatchId,
+    p_stale_seconds: Math.max(30, Math.floor(staleSeconds)),
+  });
+  if (error) throw new Error(error.message);
+  return data as {
+    id: number;
+    organizationId: string | null;
+    taskId: string | null;
+    dispatchId: string | null;
+    queueMessageId: string;
+    attempts: number;
+    reason: string;
+    newDispatchId: string;
+  } | null;
+}
+
+export async function markBackgroundDeadLetterReplayed(id: number, dispatchId: string) {
+  const db = createAdminClient();
+  const { data, error } = await db.rpc("mark_background_dead_letter_replayed", {
+    p_id: id,
+    p_dispatch_id: dispatchId,
+  });
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+}
+
 export async function recordBackgroundDeadLetter(input: {
   organizationId?: string | null;
   taskId?: string | null;
