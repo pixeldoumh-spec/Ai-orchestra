@@ -56,9 +56,14 @@ test("V6.6.1 step recovery detects older or unknown worker generations",()=>{
 });
 
 
-test("V6.6.1 stale active lease becomes eligible after prolonged heartbeat loss",()=>{
+test("V6.6.1 active lease is not reclaimed by heartbeat staleness",()=>{
  const now=Date.parse("2026-10-05T16:00:00.000Z");
  const task={status:"running",lease_until:"2026-10-05T16:03:00.000Z",last_heartbeat_at:"2026-10-05T15:54:00.000Z"};
+ assert.equal(isStaleLeaseTakeoverEligible(task,now,300000),false);
+});
+test("V6.6.1 expired lease becomes eligible for takeover",()=>{
+ const now=Date.parse("2026-10-05T16:00:00.000Z");
+ const task={status:"running",lease_until:"2026-10-05T15:59:59.000Z",last_heartbeat_at:"2026-10-05T15:59:50.000Z"};
  assert.equal(isStaleLeaseTakeoverEligible(task,now,300000),true);
 });
 test("V6.6.1 active heartbeat never gets forcibly reclaimed",()=>{

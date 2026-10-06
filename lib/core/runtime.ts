@@ -44,6 +44,11 @@ export function isDispatchEligible(
 
   if (task.status === "queued") return true;
 
+  // A lease expiry is the authoritative takeover boundary. Heartbeat
+  // staleness must never override an otherwise-active execution lease.
+  const leaseUntil = task.lease_until ? Date.parse(task.lease_until) : NaN;
+  if (!Number.isFinite(leaseUntil) || leaseUntil <= nowMs) return true;
+
   return !isHeartbeatFresh(task, nowMs, staleHeartbeatMs);
 }
 
@@ -91,12 +96,10 @@ export function ownsLease(
 export function isStaleLeaseTakeoverEligible(
   task: RuntimeTaskSnapshot,
   nowMs = Date.now(),
-  staleLeaseTakeoverMs = 300_000,
+  _staleLeaseTakeoverMs = 300_000,
 ): boolean {
   if (task.status !== "running") return false;
   const leaseUntil = task.lease_until ? Date.parse(task.lease_until) : NaN;
-  const heartbeat = task.last_heartbeat_at ? Date.parse(task.last_heartbeat_at) : NaN;
-  if (!Number.isFinite(leaseUntil) || leaseUntil <= nowMs) return false;
-  if (!Number.isFinite(heartbeat)) return false;
-  return heartbeat <= nowMs - staleLeaseTakeoverMs;
+  // The lease expiry itself is the hard execution-fencing boundary.
+  return Number.isFinite(leaseUntil) && leaseUntil <= nowMs;
 }
