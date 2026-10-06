@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { OrchestraShell } from "@/components/OrchestraShell";
 import { ExecutionResult } from "@/components/ExecutionResult";
+import { ExecutionWorkspace } from "@/components/ExecutionWorkspace";
 
 type Task=any;
 
 export default function RunsPage(){
   const [tasks,setTasks]=useState<Task[]>([]);
   const [selected,setSelected]=useState<Task|null>(null);
+  const [executionEvents,setExecutionEvents]=useState<any[]>([]);
   const [message,setMessage]=useState("");
   const [busy,setBusy]=useState("");
   const [comment,setComment]=useState("");
@@ -29,6 +31,7 @@ export default function RunsPage(){
   }
 
   async function selectTask(id:string){
+    setExecutionEvents([]);
     setBusy("load");
     const r=await fetch("/api/tasks/"+encodeURIComponent(id));
     const b=await r.json().catch(()=>({}));
@@ -49,15 +52,24 @@ export default function RunsPage(){
       const [e,c]=await Promise.all([er.json().catch(()=>({})),cr.json().catch(()=>({}))]);
       if(live){setEvidence(e.evidence??[]);setComments(c.comments??[]);}
     }).catch(()=>{});
-    if(!["verified","failed","cancelled"].includes(selected.status)){
-      const s=new EventSource("/api/tasks/"+encodeURIComponent(selected.id)+"/stream");
-      s.addEventListener("execution",(ev)=>{
-        try{const p=JSON.parse((ev as MessageEvent<string>).data);if(p.task){setSelected(p.task);setTasks(old=>old.map(t=>t.id===p.task.id?{...t,status:p.task.status,spent_cost_cents:p.task.spent_cost_cents,updated_at:p.task.updated_at}:t));}}
-        catch{}
-      });
-      return ()=>{live=false;s.close();};
-    }
-    return ()=>{live=false;};
+    const s=new EventSource("/api/tasks/"+encodeURIComponent(selected.id)+"/stream");
+    s.addEventListener("execution",(ev)=>{
+      try{
+        const p=JSON.parse((ev as MessageEvent<string>).data);
+        if(p.type === "event" && p.event){
+          setExecutionEvents((old)=>{
+            const next=[...old.filter((item:any)=>String(item.id)!==String(p.event.id)),p.event];
+            return next.slice(-120);
+          });
+        }
+        if(p.type === "snapshot" && p.task){
+          setSelected(p.task);
+          setTasks(old=>old.map(t=>t.id===p.task.id?{...t,status:p.task.status,spent_cost_cents:p.task.spent_cost_cents,updated_at:p.task.updated_at}:t));
+          if(["verified","failed","cancelled"].includes(p.task.status)) s.close();
+        }
+      }catch{}
+    });
+    return ()=>{live=false;s.close();};
   },[selected?.id]);
 
   const currentRevision = selected?.plan_revision ?? 1;
@@ -122,34 +134,12 @@ export default function RunsPage(){
           <a className="secondary actionLink" href="/">Open composer</a>
         </div>
 
-        <div className="executionBay">
-          <div className="executionBayTop">
-            <div className="executionBayTitle">
-              <span className="executionLiveDot" />
-              <div><strong>Execution trace</strong><span>Durable orchestration session</span></div>
-            </div>
-            <div className="executionStats">
-              <span>{currentSteps.filter((s:any)=>s.status==="verified").length}/{currentSteps.length} verified</span>
-              <span>{currentSteps.find((s:any)=>["running","executing","working"].includes(s.status))?"Model active":"No active model"}</span>
-            </div>
-          </div>
-          <div className="executionTimeline">
-            {currentSteps.map((s:any,i:number)=>(
-              <div className={"executionStep "+(["running","executing","working"].includes(s.status)?"isActive":"")} key={s.id}>
-                <div className="stepRail"><div className={"stepMarker "+s.status}>{["verified","succeeded","completed"].includes(s.status)?"✓":i+1}</div></div>
-                <div className="stepDetails">
-                  <div className="stepLine">
-                    <div className="stepIdentity"><strong>{pretty(s.agent_id)}</strong><span className="stepKind">{formatStatus(s.kind)}</span></div>
-                    <span className="stepStatus">{formatStatus(s.status)}</span>
-                  </div>
-                  <div className="stepMeta"><span>{s.checkpoint?.model ? String(s.checkpoint.model) : "Model selected at runtime"}</span><span>{s.id}</span></div>
-                  <div className="stepObjective">{s.objective}</div>
-                  <div className="stepTrack"><span style={{width:stepWidth(s.status)}}/></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <ExecutionWorkspace
+          task={selected}
+          events={executionEvents}
+          title="Execution trace"
+          subtitle="Live agents, model routing, handoffs and verification"
+        />
 
         {(selected.approvals??[]).filter((a:any)=>a.status==="pending").map((a:any)=><div className="approvalNotice" key={a.id}><div className="approvalCopy"><strong>Approval required</strong><span>{a.reason}</span></div><div className="approvalActions"><button disabled={busy==="approve"} onClick={()=>void resolve(a.id,"approve")}>Approve</button><button className="quietButton" disabled={busy==="reject"} onClick={()=>void resolve(a.id,"reject")}>Reject</button></div></div>)}
 
