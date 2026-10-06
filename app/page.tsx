@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import { MobileWorkspaceNav } from "@/components/MobileWorkspaceNav";
+import { ExecutionResult } from "@/components/ExecutionResult";
 
 type Task = any;
 type Agent = any;
@@ -574,7 +575,7 @@ function TaskPanel({ task, teams }: { task: Task; teams: any[] }) {
             <span><Icon name="check" size={14} /> Verified result</span>
             <span>Complete</span>
           </div>
-          <pre>{JSON.stringify(task.final_result, null, 2)}</pre>
+          <ExecutionResult value={task.final_result} />
         </div>
       )}
 
