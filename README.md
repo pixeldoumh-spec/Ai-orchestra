@@ -170,6 +170,21 @@ V6.5 turns the V6.2 document registry into a provider-aware workspace knowledge 
 
 Binary formats remain in the existing V6.2 provider retrieval path when OpenAI hosted file_search is selected. Under the production Workers AI path, locally indexable text, markup and source documents use the application-owned semantic retrieval plane.
 
+## V6.7 — Dynamic Multi-Model Orchestration
+
+V6.7 replaces the single-model Workers AI strategy with a capability-aware routing layer.
+
+- **Role-aware selection:** planner, research, analysis, writer and verifier steps can select different models.
+- **Capability matching:** routing considers reasoning, tool use, vision, coding and context-window requirements.
+- **Cost/latency/quality scoring:** candidates are ranked using a deterministic policy rather than a hard-coded single winner.
+- **Safe policy controls:** paid models are disabled by default in production; an explicit allowlist and pinned mode are supported.
+- **Automatic fallback:** transient capacity, quota, paid-plan and contract failures can move a step to the next eligible model without changing task ownership.
+- **Per-model circuit state:** repeated failures temporarily suppress a model inside the active runtime isolate to reduce retry storms.
+- **Runtime provenance:** each step records the selected model, routing role, candidate set and routing reason in execution events/metrics.
+- **Expanded Workers AI adapters:** the runtime accepts current model families including GLM 5.3 Flash, Qwen 3.8 27B, DeepSeek V4 Flash/Pro and Kimi K2.7 Code through the OpenAI-compatible chat path.
+
+The checked-in production policy starts in dynamic mode with paid model selection disabled. Enable paid routing only after the Cloudflare account is intentionally configured for those models; otherwise the router stays within the non-paid catalog and keeps the existing GLM 4.7 fallback available.
+
 ## V7 — Productization
 
 V7 adds the product layer on top of the V6.6 production runtime:
