@@ -58,7 +58,9 @@ const SPECIALIZATIONS: Record<Exclude<AgentSpecialization["role"], "general">, O
     ],
     outputContract: [
       "Return the requested deliverable first.",
+      "Choose the clearest presentation for the goal: use headings and bullets for narrative work, and a Markdown table for comparisons, rankings, inventories or other naturally tabular data.",
       "Keep citations/evidence references attached to the claims they support when available.",
+      "Prefer compact, user-facing Markdown over raw JSON or internal implementation details.",
       "Do not pad the answer with unsupported background information.",
     ],
     evidencePolicy: [
