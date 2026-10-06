@@ -3,7 +3,7 @@ import { listAgents } from "./registry";
 import { getDefaultModel, getModelAdapter, selectModelForInput } from "./model";
 import { planWorkflow } from "./planner";
 import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, recoverStaleTaskSteps, settleTaskLease, TaskLeaseLostError, updateStepOwned, updateTaskOwned } from "./repository";
-import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, PersistedTask } from "./types";
+import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, PersistedTask, ModelRouteRole } from "./types";
 import { getModelTools, invokeTool, resolveModelToolId } from "@/lib/tools/gateway";
 import { findFailedCurrentRevisionStep, readyStepIds, selectParallelBatch } from "@/lib/core/workflow";
 import { recordEnterpriseUsage } from "@/lib/enterprise/metering";
@@ -31,7 +31,7 @@ const VERIFICATION_OUTPUT_SCHEMA = {
   },
 } as const;
 
-function routingRoleForStep(agent: AgentDefinition, stepKind: "work" | "verification") {
+function routingRoleForStep(agent: AgentDefinition, stepKind: "work" | "verification"): ModelRouteRole {
   if (stepKind === "verification") return "verifier" as const;
   const role = getAgentSpecialization(agent, stepKind).role;
   return role === "research" || role === "analysis" || role === "writer" ? role : "agent";
@@ -71,6 +71,7 @@ function resolveAgentModel(input: {
       role,
       candidates: [{ model: agent.model, score: 10_000, capabilities: [], paid: false }],
       reason: "explicit-agent-model",
+      estimatedInputTokens,
     };
   }
 
