@@ -1,5 +1,3 @@
-import type { ReasoningEffort } from "@/lib/orchestrator/types";
-
 export type ModelRouteRole =
   | "planner"
   | "research"
@@ -15,7 +13,8 @@ export type ModelCapability =
   | "long_context"
   | "coding";
 
-export type ModelReasoningMode = ReasoningEffort | "max";
+export type ModelReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+export type ModelReasoningMode = ModelReasoningEffort | "max";
 
 export interface ModelProfile {
   id: string;
@@ -50,7 +49,7 @@ export interface ModelSelectionInput {
   requiredCapabilities?: ModelCapability[];
   toolCount?: number;
   estimatedInputTokens?: number;
-  reasoningEffort?: ReasoningEffort | null;
+  reasoningEffort?: ModelReasoningEffort | null;
   explicitModel?: string | null;
   policy?: Partial<RoutingPolicy>;
 }
