@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { OrchestraShell } from "@/components/OrchestraShell";
+import { ExecutionResult } from "@/components/ExecutionResult";
 
 type Task=any;
 
@@ -132,7 +133,7 @@ export default function RunsPage(){
 
         {(selected.approvals??[]).filter((a:any)=>a.status==="pending").map((a:any)=><div className="approvalNotice" key={a.id}><div className="approvalCopy"><strong>Approval required</strong><span>{a.reason}</span></div><div className="approvalActions"><button disabled={busy==="approve"} onClick={()=>void resolve(a.id,"approve")}>Approve</button><button className="quietButton" disabled={busy==="reject"} onClick={()=>void resolve(a.id,"reject")}>Reject</button></div></div>)}
 
-        {selected.final_result&&<div className="finalResult"><div className="resultHeader"><span>✓ Verified result</span><span>Complete</span></div><pre>{JSON.stringify(selected.final_result,null,2)}</pre></div>}
+        {selected.final_result&&<div className="finalResult"><div className="resultHeader"><span>✓ Verified result</span><span>Complete</span></div><ExecutionResult value={selected.final_result} /></div>}
 
         {evidence.length>0&&<details className="detailsBlock" open><summary>Evidence · {evidence.length}</summary><div className="detailsContent">{evidence.map((e:any)=><div className="evidenceItem" key={e.id}><div className="evidenceTitle"><strong>{e.source_title??e.source_type}</strong>{e.confidence!=null&&<span>{Math.round(Number(e.confidence)*100)}%</span>}</div>{e.claim&&<p>{e.claim}</p>}{e.source_url&&<a href={e.source_url} target="_blank" rel="noreferrer">Open source</a>}</div>)}</div></details>}
 
