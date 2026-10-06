@@ -383,11 +383,7 @@ function routingPolicy() {
   return {
     allowPaidModels: truthyEnv("AI_ROUTING_ALLOW_PAID_MODELS", false),
     allowlist: csvEnv("AI_ROUTING_MODEL_ALLOWLIST"),
-    preferred: [
-      process.env.AI_PLANNER_MODEL,
-      process.env.AI_VERIFIER_MODEL,
-      process.env.WORKERS_AI_MODEL,
-    ].filter((value): value is string => Boolean(value?.trim())),
+    preferred: [],
     maxCandidates: Number(process.env.AI_ROUTING_MAX_CANDIDATES ?? "5"),
     circuitFailureThreshold: Number(process.env.AI_ROUTING_CIRCUIT_FAILURES ?? "2"),
     circuitCooldownMs: Number(process.env.AI_ROUTING_CIRCUIT_COOLDOWN_SECONDS ?? "30") * 1000,
@@ -431,7 +427,9 @@ export function selectModelForInput(input: {
 
   if (mode === "pinned" && explicit?.startsWith("@cf/")) {
     const profile = catalog.find((item) => item.id === explicit);
-    if (profile && (allowPaid || !profile.paid) && !policy.allowlist?.length || (profile && policy.allowlist?.includes(explicit))) {
+    const allowedByPaidPolicy = profile && (allowPaid || !profile.paid);
+    const allowedByList = !policy.allowlist?.length || policy.allowlist.includes(explicit);
+    if (profile && allowedByPaidPolicy && allowedByList) {
       return {
         model: explicit,
         role: input.role,
