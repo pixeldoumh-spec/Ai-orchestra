@@ -409,6 +409,17 @@ function inferredRoutingCapabilities(input: ModelCompleteInput): ModelCapability
   return [...capabilities];
 }
 
+export function isConfiguredModelAllowed(model: string): boolean {
+  const normalized = model.trim();
+  if (!normalized.startsWith("@cf/")) return true;
+  const profile = getModelCatalog().find((item) => item.id === normalized);
+  if (!profile) return false;
+  if (profile.paid && !truthyEnv("AI_ROUTING_ALLOW_PAID_MODELS", false)) return false;
+  const allowlist = csvEnv("AI_ROUTING_MODEL_ALLOWLIST");
+  if (allowlist.length > 0 && !allowlist.includes(normalized)) return false;
+  return true;
+}
+
 export function selectModelForInput(input: {
   role: ModelRouteRole;
   goal?: string;
