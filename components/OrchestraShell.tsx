@@ -159,7 +159,6 @@ export function OrchestraShell({ children, title, section }: { children: ReactNo
             <span>{title === "Home" ? "AI Orchestra" : title}</span>
           </div>
           <div className="headerActions">
-            <span className="healthPill"><span className="statusDot"/> Healthy</span>
             <a className="avatarButton" href="/auth/sign-in" aria-label="Account"><Icon name="user" size={15}/></a>
           </div>
         </header>
