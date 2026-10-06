@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { listAgents } from "./registry";
-import { getDefaultModel, getModelAdapter, selectModelForInput } from "./model";
+import { getDefaultModel, getModelAdapter, isConfiguredModelAllowed, selectModelForInput } from "./model";
 import { planWorkflow } from "./planner";
 import { appendEvent, claimTask, getTask, heartbeatTask, recalculateTaskSpend, replanTask, recoverStaleTaskSteps, settleTaskLease, TaskLeaseLostError, updateStepOwned, updateTaskOwned } from "./repository";
 import type { AgentDefinition, ModelAdapter, ModelResult, PersistedStep, PersistedTask, ModelRouteRole } from "./types";
@@ -65,7 +65,7 @@ function resolveAgentModel(input: {
   const cloudflare = provider === "cloudflare_workers_ai" || provider === "workers_ai" || provider === "cloudflare-ai";
   const estimatedInputTokens = estimateRoutingTokens(input);
 
-  if (stepKind === "work" && agent.model && (!cloudflare || agent.model.startsWith("@cf/"))) {
+  if (stepKind === "work" && agent.model && (!cloudflare || (agent.model.startsWith("@cf/") && isConfiguredModelAllowed(agent.model)))) {
     return {
       model: agent.model,
       role,
