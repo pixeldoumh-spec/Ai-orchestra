@@ -33,7 +33,9 @@ type IconName =
   | "check"
   | "shield"
   | "chevron"
-  | "user";
+  | "user"
+  | "agents"
+  | "workflow";
 
 function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   const common = {
@@ -64,6 +66,8 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
     shield: <><path d="M12 3 19 6v5c0 4.7-2.9 8.1-7 10-4.1-1.9-7-5.3-7-10V6z" /><path d="m9 12 2 2 4-4" /></>,
     chevron: <path d="m8 10 4 4 4-4" />,
     user: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c.8-3.2 3.1-5 7-5s6.2 1.8 7 5" /></>,
+    agents: <><circle cx="8" cy="8" r="2.5" /><circle cx="17" cy="8" r="2.5" /><path d="M4 19c.4-3.2 1.8-5 4-5s3.6 1.8 4 5" /><path d="M13 19c.3-2.8 1.7-5 4-5s3.6 2.2 4 5" /></>,
+    workflow: <><rect x="4" y="5" width="6" height="5" rx="1" /><rect x="14" y="14" width="6" height="5" rx="1" /><path d="M10 7.5h4v9" /><path d="M7 10v4h10" /></>,
   };
 
   return <svg {...common}>{paths[name]}</svg>;
@@ -72,6 +76,8 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 const navItems = [
   { href: "/", label: "Home", icon: "home" as IconName },
   { href: "/runs", label: "Runs", icon: "runs" as IconName },
+  { href: "/workflow", label: "Workflow Studio", icon: "workflow" as IconName },
+  { href: "/agents", label: "Agents", icon: "agents" as IconName },
   { href: "/network", label: "Agent network", icon: "network" as IconName },
   { href: "/knowledge", label: "Knowledge", icon: "knowledge" as IconName },
   { href: "/marketplace", label: "Marketplace", icon: "marketplace" as IconName },
