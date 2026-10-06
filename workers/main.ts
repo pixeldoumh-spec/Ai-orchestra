@@ -79,6 +79,11 @@ const worker = {
 
   async scheduled(_event: { cron?: string }, env: RuntimeEnv) {
     try {
+      await sweepRuntimeIntegrity({
+        staleLeaseSeconds: Number(env.TASK_STALE_LEASE_TAKEOVER_SECONDS ?? 300),
+        staleWorkerRunSeconds: Number(env.TASK_STALE_WORKER_RUN_SECONDS ?? 900),
+        maxTasks: Number(env.BACKGROUND_DISPATCH_LIMIT ?? 12),
+      });
       await dispatchDueTasks(env, "cron");
     } catch (error) {
       console.error(JSON.stringify({
