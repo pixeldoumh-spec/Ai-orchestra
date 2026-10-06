@@ -510,17 +510,23 @@ function TaskPanel({ task, teams, events }: { task: Task; teams: any[]; events: 
   const steps = (task.steps ?? []).filter((s: any) => s.plan_revision === currentRevision);
 
   return (
-    <section className="runPanel" aria-live="polite">
-      <div className="runPanelHeader">
-        <div>
-          <div className="runEyebrow">ACTIVE RUN</div>
-          <h2>{task.goal ?? "Orchestration task"}</h2>
-          <div className="runMeta">Task {task.id} · Region {task.execution_region ?? "policy assigned"} · Revision {currentRevision}</div>
+    <section className="conversationThread" aria-live="polite">
+      <div className="conversationUserRow">
+        <div className="conversationUserBubble">
+          <div className="conversationUserLabel">You</div>
+          <div className="conversationUserText">{task.goal ?? "Orchestration task"}</div>
         </div>
-        <span className={"runState " + task.status}>
-          <span className="stateDot" />
-          {formatStatus(task.status)}
-        </span>
+      </div>
+
+      <div className="conversationAssistantRow">
+        <div className="conversationAssistantMark">A</div>
+        <div className="conversationAssistantBody">
+          <div className="conversationAssistantHead">
+            <strong>AI Orchestra</strong>
+            <span className={"conversationState " + task.status}><span className="stateDot" />{formatStatus(task.status)}</span>
+          </div>
+          <div className="conversationAssistantMeta">Orchestration run · Revision {currentRevision} · {executionLabel(task.status)}</div>
+        </div>
       </div>
 
       <ExecutionWorkspace
@@ -647,11 +653,3 @@ function formatStatus(value: string) {
   return String(value ?? "pending").replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function stepWidth(status: string) {
-  if (["verified", "succeeded", "completed"].includes(status)) return "100%";
-  if (["running", "executing", "working"].includes(status)) return "58%";
-  if (["failed", "cancelled", "rejected"].includes(status)) return "100%";
-  return "8%";
-}
-
-function formatHomeStatus(value: string){ return String(value ?? "pending").replace(/[_-]+/g," ").replace(/\b\w/g,(c)=>c.toUpperCase()); }
