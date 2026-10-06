@@ -469,3 +469,84 @@ grant execute on function public.sweep_runtime_integrity(integer,integer,integer
 
 comment on table public.background_delivery_attempts is 'V6.6.1 duplicate-delivery fence. One dispatch/attempt may be actively processed by only one worker at a time.';
 comment on function public.sweep_runtime_integrity(integer,integer,integer,timestamptz) is 'V6.6.1 runtime sweeper for stale task leases and abandoned background worker telemetry.';
+
+
+-- Atomic stale-heartbeat takeover: the lease owner is fenced by heartbeat
+-- freshness, not only by lease_until expiry.
+create or replace function public.claim_task_lease(
+  p_task_id text,
+  p_organization_id uuid,
+  p_worker_id text,
+  p_lease_seconds integer default 600,
+  p_stale_heartbeat_seconds integer default 120,
+  p_now timestamptz default now()
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  t public.tasks%rowtype;
+  next_generation bigint;
+  until_at timestamptz;
+begin
+  if p_lease_seconds < 30 or p_lease_seconds > 3600 then
+    raise exception 'Invalid lease duration';
+  end if;
+  if p_stale_heartbeat_seconds < 30 or p_stale_heartbeat_seconds > 1800 then
+    raise exception 'Invalid stale heartbeat duration';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext(p_organization_id::text || ':' || p_task_id));
+  select * into t
+  from public.tasks
+  where id=p_task_id and organization_id=p_organization_id
+  for update;
+
+  if not found then return null; end if;
+  if t.status in ('awaiting_approval','verified','failed','cancelled') then return null; end if;
+  if t.run_after is not null and t.run_after > p_now then return null; end if;
+
+  if t.status='running' then
+    if t.last_heartbeat_at is not null
+       and t.last_heartbeat_at > p_now - make_interval(secs => p_stale_heartbeat_seconds)
+    then
+      return null;
+    end if;
+  elsif t.status <> 'queued' then
+    return null;
+  elsif t.lease_until is not null and t.lease_until > p_now then
+    return null;
+  end if;
+
+  next_generation := coalesce(t.lease_generation,0) + 1;
+  until_at := p_now + make_interval(secs => p_lease_seconds);
+
+  update public.tasks
+  set status='running',
+      lease_owner=p_worker_id,
+      lease_until=until_at,
+      lease_generation=next_generation,
+      started_at=coalesce(started_at,p_now),
+      last_heartbeat_at=p_now,
+      last_worker_id=p_worker_id,
+      last_lease_acquired_at=p_now,
+      run_after=null,
+      updated_at=p_now
+  where id=p_task_id and organization_id=p_organization_id;
+
+  return jsonb_build_object(
+    'taskId', t.id,
+    'organizationId', t.organization_id,
+    'status', 'running',
+    'workerId', p_worker_id,
+    'leaseOwner', p_worker_id,
+    'leaseUntil', until_at,
+    'leaseGeneration', next_generation
+  );
+end;
+$$;
+
+revoke all on function public.claim_task_lease(text,uuid,text,integer,integer,timestamptz) from public,anon,authenticated;
+grant execute on function public.claim_task_lease(text,uuid,text,integer,integer,timestamptz) to service_role;
