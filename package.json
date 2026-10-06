@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:core": "npm run build:core && node --test tests/core.test.mjs",
+    "test:core": "npm run build:core && node --test tests/core.test.mjs tests/runtime-integrity.test.mjs",
     "build:core": "tsc -p tsconfig.core.json",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && npm run deploy:cloudflare",
