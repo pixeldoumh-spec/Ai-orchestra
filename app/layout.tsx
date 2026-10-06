@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import "./orchestra-modern.css";
 
 export const metadata: Metadata = {
   title: "AI Orchestra",
