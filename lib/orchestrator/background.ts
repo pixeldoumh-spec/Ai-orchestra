@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { appendEvent, recoverStaleTaskLease } from "./repository";
+import { appendEvent, claimTask, recoverStaleTaskLease, settleTaskLease } from "./repository";
 import { enqueueTask, newDispatchId } from "./queue";
 import {
   claimBackgroundDeadLetterReplay,
@@ -154,19 +154,57 @@ export async function executeQueuedTask(input: {
 
   let run: Awaited<ReturnType<typeof startBackgroundWorkerRun>> | null = null;
   let deliveryStatus: "completed" | "failed" | "skipped" = "failed";
+  let claimedLease: Awaited<ReturnType<typeof claimTask>> | null = null;
+
   try {
-    run = await startBackgroundWorkerRun({
-      organizationId: input.organizationId,
-      taskId: input.taskId,
-      dispatchId: input.dispatchId,
-      workerId,
-      trigger: "queue",
-      attempt: input.attempt,
-    });
+    // The task lease is the execution fence. Do not create a worker-run record
+    // until this delivery has actually acquired the task lease.
+    claimedLease = await claimTask(input.taskId, input.organizationId, workerId);
+    if (!claimedLease) {
+      deliveryStatus = "skipped";
+      await finishBackgroundDelivery({
+        dispatchId: input.dispatchId,
+        attempt: input.attempt,
+        workerId,
+        status: deliveryStatus,
+        metadata: {
+          queueMessageId: input.queueMessageId,
+          duplicateDelivery: true,
+          reason: "task_execution_already_claimed",
+        },
+      }).catch(() => {});
+      return {
+        claimed: false,
+        duplicateDelivery: true,
+        reason: "task_execution_already_claimed",
+      };
+    }
+
+    const leaseGeneration = Number(claimedLease.lease_generation ?? 0);
+    try {
+      run = await startBackgroundWorkerRun({
+        organizationId: input.organizationId,
+        taskId: input.taskId,
+        dispatchId: input.dispatchId,
+        workerId,
+        trigger: "queue",
+        attempt: input.attempt,
+      });
+    } catch (error) {
+      await settleTaskLease(input.taskId, input.organizationId, workerId, leaseGeneration).catch(() => null);
+      throw error;
+    }
+
     const startedAt = run.startedAt;
     try {
       const { processTask } = await import("./worker");
-      const result = await processTask(input.taskId, input.organizationId, workerId, input.runtimeEnv);
+      const result = await processTask(
+        input.taskId,
+        input.organizationId,
+        workerId,
+        input.runtimeEnv,
+        { claimedLease },
+      );
       const db = createAdminClient();
       const { data: task } = await db
         .from("tasks")
@@ -228,7 +266,6 @@ export async function executeQueuedTask(input: {
     });
   }
 }
-
 export async function replayBackgroundDeadLetter(id: number, runtimeEnv: unknown) {
   hydrateRuntimeEnvironment(runtimeEnv);
   const newDispatchId = `dlq_${id}_${crypto.randomUUID()}`;
