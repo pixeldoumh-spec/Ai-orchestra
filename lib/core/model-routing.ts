@@ -290,7 +290,7 @@ function scoreModel(model: ModelProfile, input: ModelSelectionInput, needs: Set<
   const weights = roleWeights(input.role, needs);
   const contextScore = (input.estimatedInputTokens ?? 0) <= 0
     ? 100
-    : Math.min(100, (model.contextWindow / Math.max(1, input.estimatedInputTokens)) * 100);
+    : Math.min(100, (model.contextWindow / Math.max(1, input.estimatedInputTokens ?? 0)) * 100);
   const preferredBonus = policy.preferred?.includes(model.id) ? 12 : 0;
   const explicitBonus = input.explicitModel === model.id ? 30 : 0;
   const reasoningPenalty = input.reasoningEffort && !model.reasoningModes.includes(input.reasoningEffort)
