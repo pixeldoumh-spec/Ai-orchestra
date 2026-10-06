@@ -37,7 +37,7 @@ export function ExecutionWorkspace({
     .sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0))
     .slice(-8)
     .map(describeEvent)
-    .filter(Boolean)
+    .filter((item): item is NonNullable<ReturnType<typeof describeEvent>> => item !== null)
     .reverse(), [events]);
 
   const latestModelEvent = [...events]
