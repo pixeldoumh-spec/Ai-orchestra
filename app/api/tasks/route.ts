@@ -40,9 +40,13 @@ export async function POST(request: Request) {
     await ensureDefaultAgents(org.id);
     const agents = await listAgents(org.id);
     const availableAgentIds = new Set(agents.filter((agent) => agent.status !== "offline").map((agent) => agent.id));
-    const plan = parsed.data.workflowPlan
-      ? validateSpecializedPlan(validatePlan(parsed.data.workflowPlan, availableAgentIds), agents)
-      : await planWorkflow({ goal: parsed.data.goal, agents });
+    let plan;
+    if (parsed.data.workflowPlan) {
+      plan = validatePlan(parsed.data.workflowPlan, availableAgentIds);
+      validateSpecializedPlan(plan, agents);
+    } else {
+      plan = await planWorkflow({ goal: parsed.data.goal, agents });
+    }
     const task = await createTask({
       organizationId: org.id,
       userId: user.id,
