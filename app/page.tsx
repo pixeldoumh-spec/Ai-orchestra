@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import { MobileWorkspaceNav } from "@/components/MobileWorkspaceNav";
 import { ExecutionResult } from "@/components/ExecutionResult";
+import { ExecutionWorkspace } from "@/components/ExecutionWorkspace";
 
 type Task = any;
 type Agent = any;
@@ -86,6 +87,7 @@ export default function Home() {
   const [org, setOrg] = useState<any>(null);
   const [goal, setGoal] = useState("Prepare a concise weekly business report");
   const [task, setTask] = useState<Task>(null);
+  const [executionEvents, setExecutionEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [workspaceName, setWorkspaceName] = useState("My Workspace");
@@ -132,6 +134,12 @@ export default function Home() {
     const onExecution = (event: MessageEvent<string>) => {
       try {
         const payload = JSON.parse(event.data);
+        if (payload.type === "event" && payload.event) {
+          setExecutionEvents((old) => {
+            const next = [...old.filter((item) => String(item.id) !== String(payload.event.id)), payload.event];
+            return next.slice(-120);
+          });
+        }
         if (payload.type === "snapshot" && payload.task) {
           setTask(payload.task);
           if (["verified", "failed", "cancelled"].includes(payload.task.status)) source.close();
@@ -198,6 +206,7 @@ export default function Home() {
     }
 
     setTask(b.task);
+    setExecutionEvents([]);
 
     const start = await fetch("/api/tasks/" + b.task.id + "/start", {
       method: "POST",
@@ -239,6 +248,7 @@ export default function Home() {
 
         <button className="newTaskButton" type="button" onClick={() => {
           setTask(null);
+          setExecutionEvents([]);
           setGoal("");
           setMessage("");
           document.getElementById("goal-input")?.focus();
@@ -392,7 +402,7 @@ export default function Home() {
             {message && <div className="friendlyMessage" role="status">{message}</div>}
 
             {task ? (
-              <TaskPanel task={task} teams={teams} />
+              <TaskPanel task={task} teams={teams} events={executionEvents} />
             ) : (
               <section className="recentRuns">
                 <div className="recentRunsHeader">
@@ -443,7 +453,7 @@ function SuggestionCard({
   );
 }
 
-function TaskPanel({ task, teams }: { task: Task; teams: any[] }) {
+function TaskPanel({ task, teams, events }: { task: Task; teams: any[]; events: any[] }) {
   const approvals: Approval[] = task.approvals ?? [];
   const pending = approvals.find((a) => a.status === "pending");
   const [evidence, setEvidence] = useState<any[]>([]);
@@ -539,43 +549,12 @@ function TaskPanel({ task, teams }: { task: Task; teams: any[] }) {
         </span>
       </div>
 
-      <div className="executionBay">
-        <div className="executionBayTop">
-          <div className="executionBayTitle">
-            <span className="executionLiveDot" />
-            <div>
-              <strong>Live execution</strong>
-              <span>Agents are working through the plan</span>
-            </div>
-          </div>
-          <div className="executionStats">
-            <span>{steps.filter((s: any) => s.status === "verified").length}/{steps.length} verified</span>
-            <span>{steps.find((s: any) => ["running","executing","working"].includes(s.status)) ? "Active model" : "Waiting"}</span>
-          </div>
-        </div>
-        <div className="executionTimeline">
-          {steps.map((step: any, i: number) => (
-            <div className={"executionStep " + (step.status === "running" ? "isActive" : "")} key={step.id}>
-              <div className="stepRail"><div className={"stepMarker " + step.status}>{step.status === "verified" || step.status === "succeeded" ? <Icon name="check" size={13} /> : i + 1}</div></div>
-              <div className="stepDetails">
-                <div className="stepLine">
-                  <div className="stepIdentity">
-                    <strong>{prettyStepLabel(step)}</strong>
-                    <span className="stepKind">{formatStatus(step.kind)}</span>
-                  </div>
-                  <span className="stepStatus">{formatStatus(step.status)}</span>
-                </div>
-                <div className="stepMeta">
-                  <span>{step.checkpoint?.model ? String(step.checkpoint.model) : "Model selected at runtime"}</span>
-                  <span>{step.id}</span>
-                </div>
-                <div className="stepObjective">{step.objective}</div>
-                <div className="stepTrack"><span style={{ width: stepWidth(step.status) }} /></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <ExecutionWorkspace
+        task={task}
+        events={events}
+        title="Live execution"
+        subtitle="Agents, models and verification moving through the plan"
+      />
 
       {pending && (
         <div className="approvalNotice">
