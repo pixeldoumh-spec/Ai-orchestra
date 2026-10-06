@@ -5,6 +5,8 @@ import { normalizeIdempotencyKey } from "@/lib/core/idempotency";
 import { createTask, listTasks } from "@/lib/orchestrator/repository";
 import { ensureDefaultAgents, listAgents } from "@/lib/orchestrator/registry";
 import { planWorkflow } from "@/lib/orchestrator/planner";
+import { validatePlan } from "@/lib/core/workflow";
+import { validateSpecializedPlan } from "@/lib/orchestrator/specialization";
 import { hasEnterprisePermission } from "@/lib/enterprise/rbac";
 
 
@@ -37,7 +39,10 @@ export async function POST(request: Request) {
     if (!hasEnterprisePermission(org.role, "runtime.run")) return NextResponse.json({ error: "Runtime execution permission is required" }, { status: 403 });
     await ensureDefaultAgents(org.id);
     const agents = await listAgents(org.id);
-    const plan = await planWorkflow({ goal: parsed.data.goal, agents });
+    const availableAgentIds = new Set(agents.filter((agent) => agent.status !== "offline").map((agent) => agent.id));
+    const plan = parsed.data.workflowPlan
+      ? validateSpecializedPlan(validatePlan(parsed.data.workflowPlan, availableAgentIds), agents)
+      : await planWorkflow({ goal: parsed.data.goal, agents });
     const task = await createTask({
       organizationId: org.id,
       userId: user.id,
