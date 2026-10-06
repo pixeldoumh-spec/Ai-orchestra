@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
-type IconName = "home" | "runs" | "network" | "knowledge" | "marketplace" | "billing" | "workspace" | "user" | "plus" | "more";
+type IconName = "home" | "runs" | "network" | "knowledge" | "marketplace" | "billing" | "workspace" | "user" | "plus" | "more" | "agents" | "workflow";
 
 function Icon({ name, size = 17 }: { name: IconName; size?: number }) {
   const common = {
@@ -29,6 +29,8 @@ function Icon({ name, size = 17 }: { name: IconName; size?: number }) {
     user: <><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.2 3.1-5 7-5s6.2 1.8 7 5"/></>,
     plus: <><path d="M12 5v14"/><path d="M5 12h14"/></>,
     more: <><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></>,
+    agents: <><circle cx="8" cy="8" r="2.5"/><circle cx="17" cy="8" r="2.5"/><path d="M4 19c.4-3.2 1.8-5 4-5s3.6 1.8 4 5"/><path d="M13 19c.3-2.8 1.7-5 4-5s3.6 2.2 4 5"/></>,
+    workflow: <><rect x="4" y="5" width="6" height="5" rx="1"/><rect x="14" y="14" width="6" height="5" rx="1"/><path d="M10 7.5h4v9"/><path d="M7 10v4h10"/></>,
   };
 
   return <svg {...common}>{paths[name]}</svg>;
@@ -42,6 +44,8 @@ const primary = [
 ];
 
 const secondary = [
+  { href: "/workflow", label: "Workflow Studio", icon: "workflow" as IconName },
+  { href: "/agents", label: "Agents", icon: "agents" as IconName },
   { href: "/marketplace", label: "Marketplace", icon: "marketplace" as IconName },
   { href: "/connectors", label: "Connectors", icon: "marketplace" as IconName },
   { href: "/billing", label: "Billing", icon: "billing" as IconName },
