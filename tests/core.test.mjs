@@ -66,3 +66,51 @@ test("V6.6.1 active heartbeat never gets forcibly reclaimed",()=>{
  const task={status:"running",lease_until:"2026-10-05T16:05:00.000Z",last_heartbeat_at:"2026-10-05T15:59:30.000Z"};
  assert.equal(isStaleLeaseTakeoverEligible(task,now,300000),false);
 });
+
+import { getModelCatalog, resetModelCircuits, recordModelFailure, selectModel } from "../.tmp-core/model-routing.js";
+
+test("V6.7 dynamic router prefers the strongest permitted model for planner work", () => {
+  const decision = selectModel({ role: "planner", policy: { allowPaidModels: true }, estimatedInputTokens: 30_000 });
+  assert.equal(decision.model, "@cf/zai-org/glm-5.3-flash");
+  assert.equal(decision.candidates.length <= 5, true);
+  assert.match(decision.reason, /role=planner/);
+});
+
+test("V6.7 dynamic router protects free mode from paid-model selection", () => {
+  const decision = selectModel({ role: "verifier", policy: { allowPaidModels: false }, estimatedInputTokens: 20_000 });
+  assert.equal(decision.model, "@cf/qwen/qwen3.8-27b");
+  assert.equal(decision.candidates.some((candidate) => candidate.paid), false);
+});
+
+test("V6.7 coding route selects Kimi when paid models are explicitly allowed", () => {
+  const decision = selectModel({
+    role: "agent",
+    policy: { allowPaidModels: true },
+    requiredCapabilities: ["coding"],
+    goal: "Refactor the TypeScript repository and debug the API implementation",
+  });
+  assert.equal(decision.model, "@cf/moonshotai/kimi-k2.7-code");
+  assert.equal(decision.reason.includes("capabilities=coding"), true);
+});
+
+test("V6.7 long-context route requires a model with enough context", () => {
+  const decision = selectModel({
+    role: "analysis",
+    policy: { allowPaidModels: true },
+    estimatedInputTokens: 200_000,
+  });
+  assert.equal(decision.model, "@cf/zai-org/glm-5.3-flash");
+  const profile = getModelCatalog().find((item) => item.id === decision.model);
+  assert.equal(profile?.contextWindow >= 200_000, true);
+});
+
+test("V6.7 allowlist and model circuit state constrain routing", () => {
+  resetModelCircuits();
+  recordModelFailure("@cf/qwen/qwen3.8-27b", "capacity", { circuitFailureThreshold: 1, circuitCooldownMs: 60_000 });
+  const decision = selectModel({
+    role: "writer",
+    policy: { allowPaidModels: false, allowlist: ["@cf/qwen/qwen3.8-27b", "@cf/openai/gpt-oss-20b"] },
+  });
+  assert.equal(decision.model, "@cf/openai/gpt-oss-20b");
+  resetModelCircuits();
+});

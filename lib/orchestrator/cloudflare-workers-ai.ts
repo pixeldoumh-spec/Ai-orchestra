@@ -277,9 +277,41 @@ function normalizeChatTools(tools: ModelTool[] | undefined): unknown[] {
 }
 
 function usesChatCompletions(model: string): boolean {
-  return model === "@cf/zai-org/glm-4.7-flash"
-    || model === "@cf/openai/gpt-oss-20b"
-    || model === "@cf/openai/gpt-oss-120b";
+  return [
+    "@cf/zai-org/glm-4.7-flash",
+    "@cf/zai-org/glm-5.3-flash",
+    "@cf/qwen/qwen3.8-27b",
+    "@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "@cf/deepseek-ai/deepseek-v4-pro-0813",
+    "@cf/moonshotai/kimi-k2.7-code",
+    "@cf/openai/gpt-oss-20b",
+    "@cf/openai/gpt-oss-120b",
+  ].includes(model);
+}
+
+function chatReasoningEffort(model: string, effort: ModelCompleteInput["reasoningEffort"]): string | null {
+  if (!effort || model === "@cf/zai-org/glm-4.7-flash" || model === "@cf/moonshotai/kimi-k2.7-code") return null;
+  if (model === "@cf/zai-org/glm-5.3-flash") {
+    if (effort === "low") return "low";
+    if (effort === "high") return "high";
+    return "max";
+  }
+  if (model === "@cf/qwen/qwen3.8-27b") {
+    if (effort === "low") return "low";
+    if (effort === "xhigh") return "xhigh";
+    return "medium";
+  }
+  if (model.includes("deepseek-v4")) {
+    if (effort === "low") return "low";
+    if (effort === "high") return "high";
+    return "max";
+  }
+  if (model.includes("gpt-oss")) {
+    if (effort === "low") return "low";
+    if (effort === "high") return "high";
+    return "medium";
+  }
+  return null;
 }
 
 function chatContent(value: unknown): string {
@@ -422,6 +454,9 @@ export class CloudflareWorkersAIAdapter implements ModelAdapter {
           messages: normalizeChatMessages(input),
           stream: false,
           max_tokens: maxTokens,
+          ...(chatReasoningEffort(model, input.reasoningEffort)
+            ? { reasoning_effort: chatReasoningEffort(model, input.reasoningEffort) }
+            : {}),
           ...(model === "@cf/zai-org/glm-4.7-flash"
             ? { chat_template_kwargs: { enable_thinking: false } }
             : {}),

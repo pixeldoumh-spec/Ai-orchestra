@@ -5,6 +5,7 @@ export type AgentStatus = "healthy" | "degraded" | "offline";
 export type TaskStatus = "queued" | "running" | "awaiting_approval" | "verified" | "failed" | "cancelled";
 export type StepStatus = TaskStatus;
 export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+export type ModelRouteRole = "planner" | "research" | "analysis" | "writer" | "verifier" | "agent";
 
 export interface AgentDefinition {
   id: string;
@@ -104,6 +105,15 @@ export interface ModelCompleteInput {
   outputSchema?: ModelOutputSchema | null;
   reasoningEffort?: ReasoningEffort | null;
   verbosity?: "low" | "medium" | "high" | null;
+  routingRole?: ModelRouteRole | null;
+  routingContext?: {
+    goal?: string;
+    objective?: string;
+    agentCapabilities?: string[];
+    toolCount?: number;
+    estimatedInputTokens?: number;
+    explicitModel?: string | null;
+  };
 }
 
 export interface ModelResult {
