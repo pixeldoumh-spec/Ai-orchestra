@@ -689,3 +689,230 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .executionBay .stepIdentity{flex-wrap:wrap}
   .executionBay .stepMeta{display:grid;gap:3px}
 }
+
+/* V7 execution workspace */
+.executionWorkspace{margin-top:18px}
+.executionWorkspaceHeader{align-items:center}
+.executionLiveDot.isLive{animation:executionWorkspacePulse 1.7s ease-in-out infinite}
+.executionLiveDot.isDone{background:#b9e7bd;box-shadow:0 0 0 4px rgba(185,231,189,.08)}
+.executionModelPill{max-width:180px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c8e8cc!important}
+.executionWorkspaceStrip{
+  display:grid;
+  grid-template-columns:auto auto auto minmax(0,1fr);
+  gap:0;
+  border-bottom:1px solid #2b302c;
+  background:#101310;
+}
+.executionWorkspaceStrip>div{
+  min-width:0;
+  padding:10px 12px;
+  border-right:1px solid #262b27;
+}
+.executionWorkspaceStrip>div:last-child{border-right:0}
+.executionStripLabel{
+  display:block;
+  color:#727b73;
+  font-size:7px;
+  font-weight:800;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+}
+.executionWorkspaceStrip strong{
+  display:block;
+  margin-top:3px;
+  color:#e8ece8;
+  font-size:10px;
+  font-weight:750;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.executionStripCurrent strong{color:#bfe6c4}
+.executionWorkspaceTimeline{padding:2px 13px 8px!important}
+.executionWorkspaceStep{padding:3px 0!important}
+.executionStepButton{
+  display:grid;
+  grid-template-columns:32px minmax(0,1fr);
+  gap:11px;
+  width:100%;
+  padding:12px 0;
+  margin:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  color:inherit;
+  text-align:left;
+  cursor:pointer;
+}
+.executionStepButton:hover{background:rgba(255,255,255,.012)}
+.executionStepButton:focus-visible{
+  outline:2px solid #89c58f;
+  outline-offset:4px;
+  border-radius:10px;
+}
+.executionWorkspaceStep .stepDetails{min-width:0}
+.executionWorkspaceStep .stepLine{min-width:0}
+.executionWorkspaceStep .stepStatus{padding-top:1px}
+.executionWorkspaceStep .stepStatus.verified{color:#a9dbaf}
+.executionWorkspaceStep .stepStatus.running,
+.executionWorkspaceStep .stepStatus.executing,
+.executionWorkspaceStep .stepStatus.working{color:#bfe6c4}
+.executionStepSummary{display:flex;align-items:center;gap:8px;min-width:0;margin-top:6px}
+.executionStepSummary>span:first-child{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:#b7c0b8;
+  font-size:9.5px;
+  line-height:1.5;
+}
+.stepHandoff{
+  flex:0 0 auto;
+  padding:3px 6px;
+  border:1px solid #334037;
+  border-radius:999px;
+  color:#98bca0;
+  background:#172019;
+  font-size:7px;
+  font-weight:800;
+}
+.executionWorkspaceStep.isExpanded{
+  margin:0 -6px;
+  padding:0 6px!important;
+  border-radius:10px;
+  background:#191e1a;
+}
+.stepDetailGrid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:6px;
+  margin-top:9px;
+  padding-top:9px;
+  border-top:1px solid #2a302b;
+}
+.stepDetailGrid>div{
+  min-width:0;
+  padding:7px;
+  border:1px solid #2b322c;
+  border-radius:8px;
+  background:#141814;
+}
+.stepDetailGrid span{
+  display:block;
+  color:#687169;
+  font-size:7px;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.stepDetailGrid strong{
+  display:block;
+  margin-top:4px;
+  color:#c3ccc4;
+  font:8px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.executionEmpty{
+  padding:22px 4px;
+  color:#858e86;
+  font-size:10px;
+  text-align:center;
+}
+.executionActivity{
+  border-top:1px solid #2b302c;
+  background:#0f120f;
+}
+.executionActivityHeader{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:10px;
+  padding:12px 15px 7px;
+}
+.executionActivityHeader>div{min-width:0}
+.executionActivityHeader strong,
+.executionActivityHeader span{display:block}
+.executionActivityHeader strong{
+  color:#e9eee9;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+}
+.executionActivityHeader div span{
+  margin-top:2px;
+  color:#69736b;
+  font-size:8px;
+}
+.executionActivityHeader>span{
+  flex:0 0 auto;
+  color:#778178;
+  font-size:8px;
+}
+.executionActivityList{padding:0 15px 10px}
+.executionActivityItem{
+  display:grid;
+  grid-template-columns:18px 39px minmax(0,1fr);
+  gap:7px;
+  align-items:start;
+  padding:7px 0;
+  border-top:1px solid #222722;
+  color:#adb6ae;
+  font-size:8.5px;
+  line-height:1.45;
+}
+.executionActivityItem:first-child{border-top:0}
+.executionActivityMarker{
+  display:grid;
+  place-items:center;
+  width:16px;
+  height:16px;
+  border:1px solid #39423a;
+  border-radius:50%;
+  background:#171c18;
+  color:#9aa59c;
+  font-size:8px;
+  font-weight:800;
+}
+.executionActivityItem.active .executionActivityMarker{color:#bde7c2;border-color:#628e69}
+.executionActivityItem.complete .executionActivityMarker{color:#c8eaca;border-color:#4f7556}
+.executionActivityItem.handoff .executionActivityMarker{color:#b7d9bd;border-color:#536b58}
+.executionActivityItem.warning .executionActivityMarker,
+.executionActivityItem.approval .executionActivityMarker{color:#e2c38f;border-color:#74613f}
+.executionActivityItem time{
+  color:#626c64;
+  font-variant-numeric:tabular-nums;
+}
+.executionActivityText{min-width:0}
+.executionActivityEmpty{padding:10px 0 12px;color:#69736b;font-size:8.5px}
+@keyframes executionWorkspacePulse{
+  0%,100%{transform:scale(1);opacity:1}
+  50%{transform:scale(1.22);opacity:.72}
+}
+@media(max-width:720px){
+  .executionWorkspaceStrip{grid-template-columns:1fr 1fr}
+  .executionWorkspaceStrip>div{border-bottom:1px solid #262b27}
+  .executionWorkspaceStrip>div:nth-child(2){border-right:0}
+  .executionWorkspaceStrip>div:nth-child(3){border-bottom:0}
+  .executionWorkspaceStrip>div:last-child{border-bottom:0;border-right:0}
+  .executionStepButton{grid-template-columns:28px minmax(0,1fr);gap:10px}
+  .stepDetailGrid{grid-template-columns:1fr 1fr}
+  .executionStepSummary{align-items:flex-start;flex-direction:column;gap:5px}
+  .executionStepSummary>span:first-child{white-space:normal}
+  .executionActivityItem{grid-template-columns:18px 36px minmax(0,1fr)}
+}
+@media(max-width:900px){
+  .runsLayout{grid-template-columns:1fr}
+  .runsList{order:2}
+  .runDetail{order:1}
+}
+@media(max-width:430px){
+  .stepDetailGrid{grid-template-columns:1fr}
+  .executionStats{justify-content:flex-start}
+  .executionStats span{max-width:100%}
+}
+@media(prefers-reduced-motion:reduce){
+  .executionLiveDot.isLive{animation:none}
+}
