@@ -122,13 +122,33 @@ export default function RunsPage(){
           <a className="secondary actionLink" href="/">Open composer</a>
         </div>
 
-        <div className="executionTimeline">
-          {currentSteps.map((s:any,i:number)=>(
-            <div className="executionStep" key={s.id}>
-              <div className={"stepMarker "+s.status}>{["verified","succeeded","completed"].includes(s.status)?"✓":i+1}</div>
-              <div className="stepDetails"><div className="stepLine"><strong>{pretty(s.agent_id)}</strong><span>{formatStatus(s.status)}</span></div><div className="stepObjective">{s.objective}</div><div className="stepTrack"><span style={{width:stepWidth(s.status)}}/></div></div>
+        <div className="executionBay">
+          <div className="executionBayTop">
+            <div className="executionBayTitle">
+              <span className="executionLiveDot" />
+              <div><strong>Execution trace</strong><span>Durable orchestration session</span></div>
             </div>
-          ))}
+            <div className="executionStats">
+              <span>{currentSteps.filter((s:any)=>s.status==="verified").length}/{currentSteps.length} verified</span>
+              <span>{currentSteps.find((s:any)=>["running","executing","working"].includes(s.status))?"Model active":"No active model"}</span>
+            </div>
+          </div>
+          <div className="executionTimeline">
+            {currentSteps.map((s:any,i:number)=>(
+              <div className={"executionStep "+(["running","executing","working"].includes(s.status)?"isActive":"")} key={s.id}>
+                <div className="stepRail"><div className={"stepMarker "+s.status}>{["verified","succeeded","completed"].includes(s.status)?"✓":i+1}</div></div>
+                <div className="stepDetails">
+                  <div className="stepLine">
+                    <div className="stepIdentity"><strong>{pretty(s.agent_id)}</strong><span className="stepKind">{formatStatus(s.kind)}</span></div>
+                    <span className="stepStatus">{formatStatus(s.status)}</span>
+                  </div>
+                  <div className="stepMeta"><span>{s.checkpoint?.model ? String(s.checkpoint.model) : "Model selected at runtime"}</span><span>{s.id}</span></div>
+                  <div className="stepObjective">{s.objective}</div>
+                  <div className="stepTrack"><span style={{width:stepWidth(s.status)}}/></div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {(selected.approvals??[]).filter((a:any)=>a.status==="pending").map((a:any)=><div className="approvalNotice" key={a.id}><div className="approvalCopy"><strong>Approval required</strong><span>{a.reason}</span></div><div className="approvalActions"><button disabled={busy==="approve"} onClick={()=>void resolve(a.id,"approve")}>Approve</button><button className="quietButton" disabled={busy==="reject"} onClick={()=>void resolve(a.id,"reject")}>Reject</button></div></div>)}
